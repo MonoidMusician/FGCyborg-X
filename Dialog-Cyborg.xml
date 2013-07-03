@@ -1,0 +1,333 @@
+<?xml version="1.0"?>
+
+<PropertyList>
+	<name>Joystick Info</name>
+	<layout>vbox</layout>
+	<default-padding>1</default-padding>
+	<modal>false</modal>
+	<resizable>true</resizable>
+	<width>370</width>
+	<valign>top</valign>
+	<open><![CDATA[
+		var root = cmdarg().getParent(); #FIXME: does this work?
+		foreach (JOY; var joystick; props.globals.getNode("/input/joysticks").getChildren()) {
+			foreach (name; joystick.getChildren("name")) {
+				if (name == "Cyborg X") {
+					var index = joystick.getParent().getIndex();
+					break JOY;
+				}
+			}
+		}
+		var namespace = globals["__js" ~ index];
+		var Joystick = namespace.Joystick;
+		var calibration = gui.Dialog.new(Joystick[0] ~ "dialog[1]", Joystick[1] ~ "/calibration.xml");
+		gui.findElementByName(root, "Docs").getNode("label", 1).setValue("Docs can be found at: " ~ Joystick[1] ~ "/docs.txt");
+
+		# Each <property> that does not start with a / becomes local
+		# to the root of the joystick, i.e. Joystick[0] is prepended to it,
+		# and those that start with $ become local to this dialog.
+		# Any <binding><object-name>me</></> nodes fetch the name node
+		# of the parent.
+		var root_path = root.getPath();
+		var _make_global = func(node) {
+			if (!size(node.getChildren()) return;
+			foreach (var i; node.getChildren("property") {
+				var path = i.getValue();
+				if (path[0] == `$`)
+					i.setValue(root_path~substr(path, 1));
+				elsif (path[0] != `/`)
+					i.setValue(Joystick[0]~substr(path, 1));
+			};
+			if (node.getName() == "binding"
+			    and (var v = node.getChild("object-name")) != nil
+			    and v.getValue() == "me") {
+				v.setValue(node.getParent().getNode("name"));
+			};
+			foreach (var i; node.getChildren()) {
+				_make_global(i);
+			};
+		};
+		_make_global(root);
+	]]></open>
+	<close><![CDATA[
+	]]></close>
+
+	<group>
+		<layout>vbox</layout>
+		
+		<valign>top</valign>
+		<halign>center</halign>
+		<text><label>Joystick Axis Values</label></text>
+		<hrule/>
+		<group>
+			<layout>hbox</layout>
+			<halign>left</halign>
+			<group>
+				<layout>vbox</layout>
+				<text><label>  Elevator: </label></text>
+				<text><label>  Aileron:  </label></text>
+				<text><label>  Rudder:   </label></text>
+				<text><label>  Throttle1:</label></text>
+				<text><label>  Throttle2:</label></text>
+			</group>
+			<group>
+				<layout>vbox</layout>
+				<halign>right</halign>
+				<text>
+					<live>true</live>
+					<format>%+4.3f</format>
+					<property>axis[1]/binding/setting</property>
+				</text>
+				<text>
+					<live>true</live>
+					<format>%+4.3f</format>
+					<property>axis[0]/binding/setting</property>
+				</text>
+				<text>
+					<live>true</live>
+					<format>%+4.3f</format>
+					<property>axis[2]/binding/setting</property>
+				</text>
+				<text>
+					<live>true</live>
+					<format>%+4.3f</format>
+					<property>axis[3]/binding/setting</property>
+				</text>
+				<text>
+					<live>true</live>
+					<format>%+4.3f</format>
+					<property>axis[4]/binding/setting</property>
+				</text>
+			</group>
+		</group>
+		<hrule/>
+		<empty>
+			<pref-height>3</pref-height>
+		</empty>
+	</group>
+
+	<group>
+		<layout>vbox</layout>
+		<button>
+			<x>40</x>
+			<y>30</y>
+			<key>x</key>
+			<legend>Calibrate</legend>
+			<binding>
+				<command>nasal</command>
+				<script>calibration.open()</script>
+			</binding>
+			<binding>
+				<command>dialog-close</command>
+			</binding>
+		</button>
+	</group>
+
+	<!--<group>
+		<layout>vbox</layout>
+		
+		<valign>top</valign>
+		<halign>center</halign>
+		<text><label>Set Trim from Axis Positions:</label></text>
+		<empty>
+			<pref-height>3</pref-height>
+		</empty>
+		<button>
+			<legend>Trim</legend>
+			<binding>
+				<command>nasal</command>
+				<script><![CDATA[
+					setprop("/controls/flight/aileron-trim",    getprop("/controls/flight/aileron"));
+					setprop("/controls/flight/elevator-trim",   getprop("/controls/flight/elevator"));
+					setprop("/controls/flight/rudder-trim",     getprop("/controls/flight/rudder"));
+					setprop("/controls/flight/aileron", 0);
+					setprop("/controls/flight/elevator", 0);
+					setprop("/controls/flight/rudder", 0);]]>
+				</script>
+			</binding>
+		</button>
+		<empty>
+			<pref-height>3</pref-height>
+		</empty>
+	</group>-->
+
+	<group>
+		<layout>vbox</layout>
+		
+		<valign>top</valign>
+		<halign>center</halign>
+		<text><label>Documentation:</label></text>
+		<empty>
+			<pref-height>3</pref-height>
+		</empty>
+		<text>
+			<name>Docs</name>
+			<label>Docs</label>
+		</text>
+		<empty>
+			<pref-height>3</pref-height>
+		</empty>
+	</group>
+
+
+	<group>
+		<layout>vbox</layout>
+		
+		<valign>top</valign>
+		<empty>
+			<pref-height>4</pref-height>
+		</empty>
+		<text><label>Axis Dead-band and smoothing</label></text>
+		<empty>
+			<pref-height>3</pref-height>
+		</empty>
+		<hrule/>
+		<empty>
+			<pref-height>4</pref-height>
+		</empty>
+	</group>
+
+	<group>
+		<layout>table</layout>
+		<text>
+			<row>0</row><col>0</col>
+			<label>Axis:</label>
+		</text>
+		<combo>
+			<row>0</row><col>1</col>
+			<value>Elevator</value>
+			<value>Aileron</value>
+			<value>Rudder</value>
+			<value>Throttles</value>
+		</combo>
+	</group>
+
+	<group>
+		<layout>hbox</layout>
+		
+		<group>
+			<layout>vbox</layout>
+			<halign>left</halign>
+			<width>150</width>
+			<text>
+				<halign>left</halign>
+				<label>Axis:</label>
+			</text>
+			<text>
+				<halign>left</halign>
+				<label>Elevator dead-band</label>
+			</text>
+			<text>
+				<halign>left</halign>
+				<label>Aileron dead-band</label>
+			</text>
+			<text>
+				<halign>left</halign>
+				<label>Rudder dead-band</label>
+			</text>
+			<text>
+				<halign>left</halign>
+				<label>Elevator EWMA</label>
+			</text>
+		</group>
+		<group>
+			<layout>vbox</layout>
+			<default-padding>1</default-padding>
+			<text>
+				<label>&lt;-&gt;</label>
+			</text>
+			<slider>
+				<name>Pitch</name>
+				<property>axis[1]/dead-zone</property>
+				<live>1</live>
+				<min>0</min>
+				<max>0.1</max>
+				<binding>
+					<command>dialog-apply</command>
+					<object-name>Pitch</object-name>
+				</binding>
+			</slider>
+			<slider>
+				<name>Roll</name>
+				<property>axis[0]/dead-zone</property>
+				<live>1</live>
+				<min>0</min>
+				<max>0.1</max>
+				<binding>
+					<command>dialog-apply</command>
+					<object-name>Roll</object-name>
+				</binding>
+			</slider>
+			<slider>
+				<name>Yaw</name>
+				<property>axis[3]/dead-zone</property>
+				<live>1</live>
+				<min>0</min>
+				<max>0.1</max>
+				<binding>
+					<command>dialog-apply</command>
+					<object-name>Rudder</object-name>
+				</binding>
+			</slider>
+			<slider>
+				<name>Elevator EWMA</name>
+				<property>axis[1]/EWMA</property>
+				<live>1</live>
+				<min>0.0</min>
+				<max>0.01</max>
+				<binding>
+					<command>dialog-apply</command>
+					<object-name>Elevator EWMA</object-name>
+				</binding>
+			</slider>
+		</group>
+		<group>
+			<layout>vbox</layout>
+			<text>
+				<halign>right</halign>
+				<label>Value:   </label>
+			</text>
+			<text>
+				<halign>right</halign>
+				<label>xxxxxxxx</label>
+				<live>true</live>
+				<format>%.3f</format>
+				<property>/input/joysticks/js[0]/axis[1]/dead-zone</property>
+			</text>
+			<text>
+				<halign>right</halign>
+				<label>xxxxxxxx</label>
+				<live>true</live>
+				<format>%.3f</format>
+				<property>/input/joysticks/js[0]/axis[0]/dead-zone</property>
+			</text>
+			<text>
+				<halign>right</halign>
+				<label>xxxxxxxx</label>
+				<live>true</live>
+				<format>%.3f</format>
+				<property>/input/joysticks/js[0]/axis[3]/dead-zone</property>
+			</text>
+			<text>
+				<halign>right</halign>
+				<label>xxxxxxxx</label>
+				<live>true</live>
+				<format>%.3f</format>
+				<property>/input/joysticks/js[0]/axis[1]/EWMA</property>
+			</text>
+		</group>
+	</group>
+
+	<group>
+		<layout>vbox</layout>
+		<button>
+			<legend>Close</legend>
+			<default>true</default>
+			<key>Esc</key>
+			<binding>
+				<command>dialog-close</command>
+			</binding>
+		</button>
+	</group>
+
+</PropertyList>

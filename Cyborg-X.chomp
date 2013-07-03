@@ -1,0 +1,641 @@
+(&(&(
+Joystick binding definitions for "Saitek Cyborg-X" Joystick by Philosopher.
+This file was based off of Cyborg-Evo.xml but also borrowed from the Aviator file and random ideas in forums (Thanks for the ideas!).
+
+Axis #  (direction)          mapped to
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+axis 0: (left-right)         aileron
+axis 1: (forward-backward)   elevator
+axis 2: (left slider)        throttle 1
+axis 3: (twist)              rudder
+axis 4: (right slider)       throttle 2
+
+Modifiers: printed #              bool value*:
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+button  9:   "10"     Modifier #1      1
+button 10:   "11"     Modifier #2      2
+button  5:    "6"     Modifier #3      4
+button  6:    "7"     Throttle Mode**
+
+Notes: *Add together the bool values for each modifier to get the overall modifier number,
+        e.g. modifiers 1 & 2 when held together will be Mod 3 and 2 & 3 would be 6.
+      **Throttle modes are configured per-aircraft and define what the left and right throttles do in that mode.
+        The GUI popupTip will (should) tell you what you need to know. Use mod 1 to switch backwards through the modes.
+
+    The trigger button (number 0) does both weapons and brakes, depending on WOW (weight-on-wheels) and what aircraft is loaded.
+ Trigger and Trigger1 are the properties /controls/armament/trigger and trigger1, respectively, and the Mod 5 literally runs
+ the binding for the 'e' key. The actions denoted with an asterisk (*) are actions that can be overwritten during aircraft-specific
+ initialization and typically are used for brakes similar to the default function, but some might have an action like "Spoilers
+ while held down" or a different gun function. Sometimes there isn't any brakes there and those mods do nothing. Here's the default
+ assignments:
+
+Button 0:   No mod    Mod 1          Mod 2       Mod 3      Mod 4           Mod 5     Mod 6
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+In air      Trigger         #           #        Trigger1         #         'e' key          #
+On ground      #            #           #           #             #             #            #
+Both        Brakes    Speed Brake*   Spoilers*   Brakes     Parking Brake       #     Thrust Reversers*
+
+ All other buttons:
+
+Button  #    (location)             No Mod            Mod 1            Mod 2***         Mod 4
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+button  2:   (lower-left of hat)    Reset View        Reset All Trim   Reset View****   Tail Wheel Lock
+button  3:   (lower-right of hat)   Toggle TWS*****         #               #                 #
+button 10:   (scroll up)            Flaps Up          Gear Up          Zoom In          Slats
+button 11:   (scroll down)          Flaps Down        Gear Down        Zoom Out         Slats
+button  4:   (upper-left of hat)    Previous View     Trim Rudder      Sweep in               #
+button  5:   (upper-right of hat)   Next View         Trim Rudder      Sweep out              #
+axis    5:   (hat left-right)       look l/r          Trim Aileron     Adj Mixture      Adj Condition
+axis    6:   (hat up-down)          look u/d          Trim Elevator    Adj Propeller    Throttle
+
+Notes: *The trigger also functions as a trigger in the air, trigger and trigger1 on No Mod and Mod 3, respectively.
+      **These brake places are configured per-aircraft, but these are the default settings.
+     ***Mod 3 is the differential braking modifier, holding it down uses brakes when the rudder is moved,
+        e.g. full left rudder will have the left brake at 1 and the other at 0. Mod 3 functions the same as Mod 3, hence it
+        isn't in the above table.
+    ****Completely resets the view (Angle, FOV, Position) while the first only resets the angle and FOV.
+   *****Tail wheel steering (TWS), Nose wheel steering (NWS), and FBW override are all combined into one function, so I just say TWS.
+        TWS and NWS are available on David Culp's aircraft while FBW-override is F-16 specific.
+
+    Two buttons (#3 and #4) can be held down for a period of time (0.3 sec) or double-tapped within a period of time (0.3 sec
+ as well) which will activate a different function, as seen in this table:
+
+Special functions:  Hold Down: No Mod   Double Tap: No Mod         Mod 1
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Button 2:           TWS while held      Move to "landing" config   Cockpit view
+Button 3:                  #            Move to "clean" config     Reset sim
+
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~CHANGES (not yet  tested)~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~CHANGES (soon to be made)~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~CHANGES (    wanted     )~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+)&)&)
+
+names:
+	Saitek Cyborg X
+	Cyborg X
+	F.L.Y. 5
+	FLY 5
+	Saitek F.L.Y. 5
+	Saitek FLY 5
+
+<nasal>
+	<script><![CDATA[
+		var Joystick = [cmdarg().getParent().getPath()~"/", getprop("/sim/fg-root") ~ "/Input/Joysticks/Saitek/Cyborg-X"];
+		var namespace = cmdarg().getNode("module").getValue();
+
+		# Initialization of values:
+		props.globals.getNode(Joystick[0] ~ "/modifier", 1).setIntValue(0);
+		var mod = var mod_handled = 0; #mod_handled is set when we are setting the modifier
+		setlistener(Joystick[0] ~ "/modifier", func {
+			if (!mod_handled) mod = getprop(Joystick[0] ~ "/modifier");
+		});
+		setlistener("/devices/status/mice/mouse[0]/button[2]", func {
+			props.globals.getNode("/devices/status/mice/mouse[0]/mode").setValue(props.globals.getNode("/devices/status/mice/mouse[0]/button[2]").getBoolValue());
+		});
+		setprop(Joystick[0] ~ "/brake-cmd", 0);
+		setprop(Joystick[0] ~ "/throttle-mode", 0);
+		ekey = props.globals.getNode("/input/keyboard/key["`e`"]"); #FIXME: do i need ~ here?
+		trigger = trigger1 = 0;
+
+		var makepath = func(prefix, arg) string.normpath(prefix~string.join("/", arg));
+
+		getlocalprop = func {return getprop(makepath(Joystick[0], arg)) };
+		setlocalprop = func {return setprop(makepath(Joystick[0], arg)) };
+
+		io.load_nasal(Joystick[1] ~ "/functions.nas", namespace);
+		io.load_nasal(Joystick[1] ~ "/buttons.nas", namespace);
+
+		var config = gui.Dialog.new(Joystick[0] ~ "/dialog","Input/Joysticks/Saitek/Cyborg-X/Dialog-Cyborg");
+
+		# Custom values:
+		var reverseHatPitch = -1; #Change this if the hat direction is backwards, also can act as a speed control (e.g. -0.5)
+		var reverseHatDir   =  1; # // ditto //
+		var load_keyboard = 0; #Whether we can load our own keyboard bindings
+		var allow_popupTips = 1; #If we want popupTips to be displayed
+		
+		# A table of settings
+		var settings = 
+			speeds: {
+				view_pan:        1.5,
+				view_dir:        1.5,
+				aileron_trim:    0.75,
+				elevator_trim:   0.75,
+				rudder_trim:     1.1,
+				mixture:         2.0,
+				condition:       2.0,
+				pitch:           1.0,
+				throttle:        1.0,
+
+				double_click_2:  0.3,
+				hold_down_2:     0.3,
+				double_click_3:  0.3, 
+				hould_down_3:    nil,
+			},
+			axes: {
+				aileron: {
+					EWMA:      0.05,
+					power:     1,
+					reverse:   0,
+					dead_band: 0.005,
+					overshoot: 0.003
+				},
+				elevator: {
+					EWMA:      0.10,
+					power:     1,
+					reverse:   1,
+					dead_band: 0.002,
+					overshoot: 0.003
+				},
+				rudder: {
+					EWMA:      0.08,
+					power:     1,
+					reverse:   0,
+					dead_band: 0.005,
+					overshoot: 0.003
+				},
+				throttle: {
+					EWMA:      0.24,
+					power:     1,
+					reverse:   0,
+					dead_band: 0,
+					overshoot: 0.003
+				},
+			},
+		};
+
+		# Axis bindings:
+		var aileron   = axis.new(EWMA:0.05, power:1, reverse:0, dead_band:0.005, overshoot:0.003);
+		var elevator  = axis.new(EWMA:0.10, power:1, reverse:1, dead_band:0.002, overshoot:0.003);
+		var rudder    = axis.new(EWMA:0.08, power:1, reverse:0, dead_band:0.007, overshoot:0.003);
+		var throttle1 = axis.new(EWMA:0.24, power:1, reverse:0, dead_band:0,     overshoot:0.003);
+		var throttle2 = axis.new(EWMA:0.24, power:1, reverse:0, dead_band:0,     overshoot:0.003);
+
+		aileron.setProp("/controls/flight/aileron");
+		elevator.setProp("/controls/flight/elevator");
+		rudder.setProp("/controls/flight/rudder");
+		aileron.setJammedName("aileron");
+		elevator.setJammedName("elevator");
+		rudder.setJammedName("rudder");
+		rudder.setFunction(func(n) { updatebrakes() });
+		throttle1.setFunction(func(n) {throttle(0, n, Joystick[0], getlocalprop("throttle-mode"))});
+		throttle2.setFunction(func(n) {throttle(1, n, Joystick[0], getlocalprop("throttle-mode"))});
+
+		# Main loop to be run once per frame
+		var loop = func() {
+			aileron.update(); elevator.update(); rudder.update();
+			throttle1.update(); throttle2.update();
+			settimer(loop, 0);
+		};
+		loop();
+
+		# Load initialization last in case it needs to overwrite anything:
+		io.load_nasal(Joystick[1] ~ "/initialization.nas", namespace);
+		# If enabled, load the Cyborg-X keyboard bindings over the default ones
+		if (load_keyboard)
+			io.write_properties(Joystick[1] ~ "/keyboard.xml");
+		printlog("info", "Successful load of Cyborg-X.xml");]]>
+	</script>
+</nasal>
+
+(&(&( ~~~~~~~~~~~~~~~~~~~~~~~~ Axis Bindings ~~~~~~~~~~~~~~~~~~~~~~~~ )&)&)
+
+Axis "Aileron":
+	n: 0, u: 0, m: 0, w: 0
+	dead-band: 0.004
+	binding: type=nasal
+		NasalBlock {aileron.push()}
+
+Axis "Elevator":
+	n: 1, u: 1, m: 1, w: 1
+	dead-band: 0.002
+	binding: type=nasal
+		NasalBlock {elevator.push()}
+
+Axis "Rudder":
+	n: 2, u: 3, m: 2, w: 3
+	dead-band: 0.1
+	binding: type=nasal
+		NasalBlock {rudder.push()}
+
+Axis "Throttle 1":
+	n: 3, u: 2, m: 3, w: 2
+	binding: type=nasal
+		NasalBlock {
+			var val = cmdarg().getNode("setting").getValue(); #range -1 to +1
+			var val2 = (1-val)/2;                             #range  0 to +1
+			throttle1.push(val2);
+		} //NasalBlock
+
+Axis "Throttle 2":
+	n: 4, u: 4, m: 4, w: 4
+	binding: type=nasal
+		NasalBlock {
+			var val = cmdarg().getNode("setting").getValue(); #range -1 to +1
+			var val2 = (1-val)/2;                             #range  0 to +1
+			throttle2.push(val2);
+		} //NasalBlock
+
+
+(&(&( ~~~~~~~~~~~~~~~~~~~~~~~~ Hat Switch ~~~~~~~~~~~~~~~~~~~~~~~~ )&)&)
+Axis "View Direction; Aileron Trim; Mixture":
+	n: 5, u: 5, m: 5, w: 6
+	binding-low: repeatable=true, command=nasal
+		NasalBlock {
+			if (mod == 0 or mod == 3)
+				view.panViewDir(reverseHatDir*1.5);
+			elsif (mod == 1)
+				controls.aileronTrim(reverseHatDir*-0.75);
+			elsif (mod == 2)
+				controls.adjMixture(reverseHatDir*-2);
+			elsif (mod == 4)
+				controls.adjCondition(reverseHatDir*-6);
+		} //NasalBlock
+	binding-high: repeatable=true, command=nasal
+		NasalBlock {
+			if (mod == 0 or mod == 3)
+				view.panViewDir(reverseHatDir*-1.5);
+			elsif (mod == 1)
+				controls.aileronTrim(reverseHatDir*0.75);
+			elsif (mod == 2)
+				controls.adjMixture(reverseHatDir*2);
+			elsif (mod == 4)
+				controls.adjCondition(reverseHatDir*6);
+		} //NasalBlock
+
+Axis "View Elevation; Elevator Trim; Prop Pitch":
+	n: 6, u: 6, m: 6, w: 7
+	binding-low: repeatable=true, command=nasal
+		NasalBlock {
+			if (mod == 0 or mod == 3)
+				view.panViewPitch(reverseHatPitch*1.5);
+			elsif (mod == 1)
+				controls.elevatorTrim(reverseHatPitch*0.75);
+			elsif (mod == 2)
+				controls.adjPropeller(reverseHatPitch*1);
+			elsif (mod == 4)
+				controls.incThrottle(reverseHatPitch*-0.01, reverseHatPitch*-1.0);
+		} //NasalBlock
+	binding-high: repeatable=true command=nasal
+		NasalBlock {
+			if (mod == 0 or mod == 3)
+				view.panViewPitch(reverseHatPitch*-1.5);
+			elsif (mod == 1)
+				controls.elevatorTrim(reverseHatPitch*-0.75);
+			elsif (mod == 2)
+				controls.adjPropeller(reverseHatPitch*-1);
+			elsif (mod == 4)
+				controls.incThrottle(reverseHatPitch*0.01, reverseHatPitch*1.0);
+		} //NasalBlock
+
+
+(&(&( ~~~~~~~~~~~~~~~~~~~~~~~~ Button Bindings ~~~~~~~~~~~~~~~~~~~~~~~~ )&)&)
+
+(&(&( Trigger Button - Brakes & guns )&)&)
+Button "Brakes": repeatable=false
+	n: 0
+	binding: command=nasal
+		NasalBlock {
+			if (mod == 0) {
+				# If in the air:
+				if (!getprop("/gear/gear[0]/wow") and !getprop("/gear/gear[1]/wow") and !getprop("/gear/gear[2]/wow") and getprop("/controls/armament/trigger") != nil) {
+					controls.trigger(1);
+					trigger = 1;
+				}
+				setbrakes(1);}
+			elsif (mod == 1)
+				brakes.down[0]();
+			elsif (mod == 2)
+				brakes.down[1]();
+			elsif (mod == 3) #differential braking modifier, trigger modifier in the air
+				if (!getprop("/gear/gear[0]/wow") and !getprop("/gear/gear[1]/wow") and !getprop("/gear/gear[2]/wow") and getprop("/controls/armament/trigger1") != nil) {
+					setprop("/controls/armament/trigger1", 1);
+					trigger1 = 1;
+				} else {
+					setbrakes(1);
+				}
+			elsif (mod == 4)
+				setbrakes(1);
+			elsif (mod == 5)
+				props.runBinding(ekey.getNode("binding"));
+			elsif (mod == 6)
+				brakes.down[2]();]]>
+		} //NasalBlock
+	binding-up: command=nasal
+		NasalBlock {
+			if (mod == 0)
+				{}
+			elsif (mod == 1)
+				brakes.up[0]();
+			elsif (mod == 2)
+				brakes.up[1]();
+			elsif (mod == 3)
+				{}
+			elsif (mod == 4) {
+				# Toggle parking brake on mod-up
+				var brake = getprop("/controls/gear/brake-parking");
+				setprop("/controls/gear/brake-parking", !brake);
+				var brake = getprop("/controls/gear/brake-parking");
+				if (allow_popupTips) gui.popupTip(sprintf("Parking Brake %s", ["OFF","ON"][brake]));}
+			elsif (mod == 5)
+				props.runBinding(ekey.getNode("mod-up/binding"));
+			elsif (mod == 6)
+				brakes.up[2]();
+			setbrakes(0);
+			if (trigger) {controls.trigger(0); trigger = 0;}
+			if (trigger1) {setprop("/controls/armament/trigger1", 0); trigger1 = 0;}
+		} //NasalBlock
+
+(&(&( 2 )&)&)
+Button "Reset view/trim": repeatable=false
+	n: 1
+	binding: command=nasal
+		NasalBlock {button2.down()}
+	binding-up: command=nasal
+		NasalBlock {button2.up()}
+
+(&(&( 3 )&)&)
+Button "TWS": repeatable=false
+	n: 2
+	binding: command=nasal
+		NasalBlock {button3.down()}
+	binding-up: command=nasal
+		NasalBlock {button3.up()}
+
+(&(&( Scroll Up )&)&)
+Button "Flaps Up; Gear up; Zoom out": repeatable=false
+	n: 11
+	binding: command=nasal
+		NasalBlock {
+			if (mod == 0 or mod == 3) {
+				popupTip = flapscontrol(-1);
+				if (popupTip != "" and allow_popupTips) gui.popupTip(popupTip);
+			} elsif (mod == 1) {
+				popupTip = gearcontrol(-1);
+				if (popupTip != "" and allow_popupTips) gui.popupTip(popupTip);
+			} elsif (mod == 2) {
+				view.increase();
+			} elsif (mod == 4) {
+				var name = "/controls/flight/slats";
+				setprop(name, getprop(name)-0.25);
+			} elsif (mod == 3) {
+				var name = Joystick[0] ~ "/brake-cmd";
+				setprop(name, getprop(name)+0.1);
+				updatebrakes();
+			}
+		} //NasalBlock
+	binding-up: command=nasal
+		NasalBlock {
+			if (mod == 0 or mod == 3)
+				controls.flapsDown(0);
+		}
+
+(&(&( Scroll Down )&)&)
+Button "Flaps Down; Gear down; Zoom in": repeatable=false
+	n: 12
+	<binding> command=nasal
+		NasalBlock {
+			if (mod == 0 or mod == 3) {
+				popupTip = flapscontrol(1);
+				if (popupTip != "" and allow_popupTips) gui.popupTip(popupTip);
+			} elsif (mod == 1) {
+				popupTip = gearcontrol(1);
+				if (popupTip != "" and allow_popupTips) gui.popupTip(popupTip);
+			} elsif (mod == 2) {
+				view.decrease();
+			} elsif (mod == 4) {
+				var name = "/controls/flight/slats";
+				setprop(name, getprop(name)+0.25);
+			} elsif (mod == 3) {
+				setbrakes(getlocalprop("brake-cmd")-0.1);
+				updatebrakes();
+			}
+		}
+	binding-up command=nasal
+		NasalBlock {
+			if (mod == 0 or mod == 3)
+				controls.flapsDown(0);
+		}
+
+(&(&( 4 )&)&)
+<button n="3">
+	<desc>Previous View; Rudder trim; Wing sweep</desc>
+	<repeatable type="bool">false</repeatable>
+	<binding>
+		<command>nasal</command>
+		<script><![CDATA[
+			if (mod == 0 or mod == 3)
+				view.stepView(-1);
+			elsif (mod == 1)
+				interpolate("/controls/flight/rudder-trim", -1,
+				   (getprop("/controls/flight/rudder-trim")+1)/controls.TRIM_RATE*1.1);
+			elsif (mod == 2)
+				flightcontrols.wingSweep(-1);]]>
+		</script>
+	</binding>
+	<mod-up>
+		<binding>
+			<command>nasal</command>
+			<script><![CDATA[
+				# Stop interpolation
+				interpolate("/controls/flight/rudder-trim",
+				    getprop("/controls/flight/rudder-trim"), 0);]]>
+			</script>
+		</binding>
+	</mod-up>
+</button>
+
+(&(&( 5 )&)&)
+<button n="4">
+	<desc>Next View; Rudder trim; Wing sweep</desc>
+	<repeatable type="bool">false</repeatable>
+	<binding>
+		<command>nasal</command>
+		<script><![CDATA[
+			if (mod == 0 or mod == 3)
+				view.stepView(1);
+			elsif (mod == 1)
+				interpolate("/controls/flight/rudder-trim", 1,
+				  -(getprop("/controls/flight/rudder-trim")-1)/controls.TRIM_RATE*1.1);
+			elsif (mod == 2)
+				flightcontrols.wingSweep(1);]]>
+		</script>
+	</binding>
+	<mod-up>
+		<binding>
+			<command>nasal</command>
+			<script><![CDATA[
+				# Stop interpolation
+				interpolate("/controls/flight/rudder-trim",
+				    getprop("/controls/flight/rudder-trim"), 0);]]>
+			</script>
+		</binding>
+	</mod-up>
+</button>
+
+(&(&( ~~~~~~~~~~~~~~~~~~~~~~~~ Modifier Buttons ~~~~~~~~~~~~~~~~~~~~~~~~ )&)&)
+
+(&(&( Left Throttle or 10 )&)&)
+<button n="9">
+	<desc>Modifier 1</desc>
+	<repeatable type="bool">false</repeatable>
+	<number>1</number>
+	<binding>
+		<command>nasal</command>
+		<script>modifier(1)</script>
+	</binding>
+	<mod-up>
+		<binding>
+			<command>nasal</command>
+			<script>modifier(0)</script>
+		</binding>
+	</mod-up>
+</button>
+
+(&(&( Right Throttle or 11 )&)&)
+<button n="10">
+	<desc>Modifier 2</desc>
+	<repeatable type="bool">false</repeatable>
+	<number>2</number>
+	<binding>
+		<command>nasal</command>
+		<script>modifier(1)</script>
+	</binding>
+	<mod-up>
+		<binding>
+			<command>nasal</command>
+			<script>modifier(0)</script>
+		</binding>
+	</mod-up>
+</button>
+
+(&(&( 6 )&)&)
+<button n="5">
+	<desc>Modifier 3</desc>
+	<repeatable type="bool">false</repeatable>
+	<number>4</number>
+	<binding>
+		<command>nasal</command>
+		<script>modifier(1)</script>
+	</binding>
+	<mod-up>
+		<binding>
+			<command>nasal</command>
+			<script>modifier(0)</script>
+		</binding>
+	</mod-up>
+</button>
+
+(&(&( 7 )&)&)
+<button n="6">
+	<desc>Throttle Mode</desc>
+	<repeatable type="bool">false</repeatable>
+	<binding>
+		<command>nasal</command>
+		<script><![CDATA[
+			var mode = getlocalprop("throttle-mode");
+			var modes = props.globals.getNode(Joystick[0]~"throttle").getChildren("mode");
+			forindex (var m; modes) {
+				if (modes[m].getIndex() != mode) continue;
+				else
+					mode = m;
+					break;
+			}
+			mode += 1;
+			if (mode == size(modes)) mode = 0;
+			mode = modes[mode].getIndex();
+			#if (mod == 0 or mod == 3) {
+			#	var mode += 1;
+			#	if (getlocalprop("throttle[0]/mode[" ~ mode ~ "]/prop[0]") == nil) {
+			#		var mode = 0;
+			#	}
+			#} elsif (mod == 1) {
+			#	var mode -= 1;
+			#	if (mode < 0) {
+			#		var mode = 0;
+			#		while (1) {
+			#			if (getlocalprop("throttle[0]/mode[" ~ mode ~ "]/prop[0]") == nil) {
+			#				var mode -= 1;
+			#				break;
+			#			} else {
+			#				var mode += 1;
+			#			}
+			#		}
+			#		if (mode < 0) {
+			#			print("ERROR! Mode is less than 0!");
+			#			var mode = 0;
+			#		}
+			#	}
+			#}
+			setlocalprop("throttle-mode", mode);
+			var name = getlocalprop("throttle/mode[" ~ mode ~ "]/name");
+			var prop0 = getlocalprop("throttle[0]/mode[" ~ mode ~ "]/prop");
+			var prop1 = getlocalprop("throttle[1]/mode[" ~ mode ~ "]/prop");
+			gui.popupTip(name);
+			# Take control of, e.g. flaps, and then set a listener to release that control:
+			if (name == "Throttle / Stepped Flaps" or name == "Throttle / Flaps"
+				or prop0 == "controls.flapsAxis()" or prop1 == "controls.flapsAxis()"
+				or prop0 == "/controls/flight/flaps" or prop1 == "/controls/flight/flaps"
+				or prop0 == "controls/flight/flaps" or prop1 == "controls/flight/flaps") {
+				control_functions.flaps.takeControl("axis");
+				var mode_listener = setlistener(Joystick[0] ~ "throttle-mode", func {
+					removelistener(mode_listener);
+					mode_listener = nil;
+					control_functions.flaps.releaseControl("axis");
+				});
+			} if (name == "Throttle / Speedbrake" #not elsif becuase these are not necessarily exclusive (though they usually are)
+				or prop0 == "/controls/flight/speedbrake" or prop1 == "/controls/flight/speedbrake"
+				or prop0 == "controls/flight/speedbrake" or prop1 == "controls/flight/speedbrake") {
+				control_functions.speedbrake.takeControl("axis");
+				var mode_listener = setlistener(Joystick[0] ~ "throttle-mode", func {
+					removelistener(mode_listener);
+					mode_listener = nil;
+					control_functions.speedbrake.releaseControl("axis");
+				});
+			}]]>
+		</script>
+	</binding>
+</button>
+
+(&(&( 8 )&)&)
+<button n="7">
+	<desc>Joystick Navigation/Command &lt;- left</desc>
+	<repeatable type="bool">false</repeatable>
+	<binding>
+		<command>nasal</command>
+		<script>button8.down()</script>
+	</binding>
+	<mod-up>
+		<binding>
+			<command>nasal</command>
+			<script>button8.up()</script>
+		</binding>
+	</mod-up>
+</button>
+
+(&(&( 9 )&)&)
+<button n="8">
+	<desc>Joystick Navigation/Command right -&gt;</desc>
+	<repeatable type="bool">false</repeatable>
+	<binding>
+		<command>nasal</command>
+		<script>button9.down()</script>
+	</binding>
+	<mod-up>
+		<binding>
+			<command>nasal</command>
+			<script>button9.up()</script>
+		</binding>
+	</mod-up>
+</button>
+
+(&(&( 13 )&)&)
+<button n="13">
+	<desc>Gui</desc>
+	<repeatable type="bool">false</repeatable>
+	<binding>
+		<command>nasal</command>
+		<script>config.toggle();</script>
+	</binding>
+</button>
+
+</PropertyList>
