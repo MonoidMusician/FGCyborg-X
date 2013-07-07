@@ -31,11 +31,12 @@
 # This is executed in the __jsN namespace of the joystick and
 # access to the current PropertyList file is through the config
 # variable.
-var path = getprop("/sim/model/path");
-var model = split("/", split(".", path)[0])[-1]; #get the actual filename without folders or the extension
-
 
 func { #temporary namespace
+
+var handle_brake_script = func(value, name) {
+	return (find("(", value)+1) ? compile(value, name) : compile(value, name)();
+};
 
 var common_modes = {
 	"Throttle L/R (2 Engines)": ["throttle[0]",   "throttle[1]"],
@@ -45,8 +46,10 @@ var common_modes = {
 	"Throttle / Speedbrake":    ["throttle", "speedbrake"],
 	"Throttle / Pitch":         ["throttle", "propeller_pitch"],
 	"Throttle / Mixture":       ["throttle", "mixture"],
-	"Throttle / Flaps":         ["throttle", ["flaps", -1]],
+	"Throttle / Flaps":         ["throttle", "flaps"],
 	"Throttle / Brakes":        ["throttle", "brake-cmd"],
+	"Throttle":                 ["throttle", "brake-cmd"],
+	"Collective":               [["throttle", -1], "brake-cmd"],
 };
 
 foreach (var ac_def; config.getChildren("aircraft")) {
@@ -59,83 +62,62 @@ foreach (var ac_def; config.getChildren("aircraft")) {
 		var found = 0;
 		foreach (var modelN; ac_def.getChildren("model"))
 			if (modelN.getValue() == model) {found = 1; break}
+	} if (found != 1 and ac_def.getNode("name") != nil) {
+		var found = 0;
+		foreach (var nameN; ac_def.getChildren("name"))
+			if (nameN.getValue() == name) {found = 1; break}
 	}
 	if (!found) continue;
 	foreach (mode; var mode; ac_def.getChildren("mode")) {
 		if (mode.getValue() != nil) {
-			call(addmode, [mode.getValue()]~common_modes[mode.getValue()]);
+			if (!contains(common_modes, mode.getValue()))
+				print("Joystick initialization error: mode name "~mode.getValue()~" does not exist.");
+			else call(addmode, [mode.getValue()]~common_modes[mode.getValue()]);
 			continue mode;
 		}
-		# PropertyList formatting of a addmode function call:
-		if (mode.getNode("throttle/function")) {
-			if (mode.getNode("name") == nil) {
-				printlog("alert", "Joystick initialization error: mode must have a name!");
-				continue mode;
-			}
-			var arg = [mode.getNode("name").getValue()];
-			foreach (var throttle; mode.getChildren("throttle")) {
-				var idx = 0;
-				var functions = throttle.getChildren("function");
-				var vec = [];
-				for (idx; idx &lt; size(functions); idx += 1) {
-					if (throttle.getChild("min", idx) != nil or throttle.getChild("max", idx) != nil)
-						append(vec, [functions[idx], throttle.getChild("min", idx), throttle.getChild("max", idx)]);
-				}
-				append(arg, vec);
-			}
-			call(addmode, arg);
 		# Copy this directly to the property tree
-		} else {
-			var idx = Joystick.getNode("mode") != nil ? Joystick.getChildren("mode")[-1].getIndex()+1 : 0;
-			props.copy(Joystick.getChild("mode", idx, 1), mode, 1); #1: copy attributes
-		}
+		var idx = Joystick.getNode("mode") != nil ? Joystick.getChildren("mode")[-1].getIndex()+1 : 0;
+		props.copy(mode, Joystick.getChild("mode", idx, 1), 1); #1: copy attributes
 	}
 	if (ac_def.getNode("brakes") != nil) {
 		if (ac_def.getNode("brakes/up[0]") != nil)
-			brakes.up[0] = compile(ac_def.getNode("brakes/up[0]").getValue(), "brake.up[0] script");
+			brakes.up[0] = handle_brake_script(ac_def.getNode("brakes/up[0]").getValue(), "brake.up[0] script");
 		if (ac_def.getNode("brakes/up[1]") != nil)
-			brakes.up[1] = compile(ac_def.getNode("brakes/up[1]").getValue(), "brake.up[1] script");
+			brakes.up[1] = handle_brake_script(ac_def.getNode("brakes/up[1]").getValue(), "brake.up[1] script");
 		if (ac_def.getNode("brakes/up[2]") != nil)
-			brakes.up[2] = compile(ac_def.getNode("brakes/up[2]").getValue(), "brake.up[2] script");
+			brakes.up[2] = handle_brake_script(ac_def.getNode("brakes/up[2]").getValue(), "brake.up[2] script");
 		if (ac_def.getNode("brakes/down[0]") != nil)
-			brakes.down[0] = compile(ac_def.getNode("brakes/down[0]").getValue(), "brake.down[0] script");
+			brakes.down[0] = handle_brake_script(ac_def.getNode("brakes/down[0]").getValue(), "brake.down[0] script");
 		if (ac_def.getNode("brakes/down[1]") != nil)
-			brakes.down[1] = compile(ac_def.getNode("brakes/down[1]").getValue(), "brake.down[1] script");
+			brakes.down[1] = handle_brake_script(ac_def.getNode("brakes/down[1]").getValue(), "brake.down[1] script");
 		if (ac_def.getNode("brakes/down[2]") != nil)
-			brakes.down[2] = compile(ac_def.getNode("brakes/down[2]").getValue(), "brake.down[2] script");
+			brakes.down[2] = handle_brake_script(ac_def.getNode("brakes/down[2]").getValue(), "brake.down[2] script");
 	}
 	# By default, an aircraft is assumed to have all possible functions.
 	# Provide a way to disable a function via a "no-"{function name} node
 	# set to 'true'.
 	foreach (var name; keys(control_functions)) {
+		var XML_name = string.Nasal_to_XML(name);
 		if (isa(control_functions[name], control_function)) {
-			if (ac_def.getNode("no-"~string.Nasal_to_XML(name)) != nil) {
-				if (ac_def.getNode("no-"~string.Nasal_to_XML(name)).getValue()) {
-					# Disable this control
-					control_functions[name].isActive = func 0;
-					control_functions[name].isControl = func(name) 0;
-				}
-			} elsif (ac_def.getNode("non-"~string.Nasal_to_XML(name)) != nil) {
-				if (ac_def.getNode("non-"~string.Nasal_to_XML(name)).getValue()) {
-					# Disable this control
-					control_functions[name].isActive = func 0;
-					control_functions[name].isControl = func(name) 0;
-				}
-			} elsif (ac_def.getNode("no-"~name) != nil) {
-				if (ac_def.getNode("no-"~name).getValue()) {
-					# Disable this control
-					control_functions[name].isActive = func 0;
-					control_functions[name].isControl = func(name) 0;
-				}
-			} elsif (ac_def.getNode("non-"~name) != nil) {
-				if (ac_def.getNode("non-"~name).getValue()) {
-					# Disable this control
-					control_functions[name].isActive = func 0;
-					control_functions[name].isControl = func(name) 0;
+			foreach (var node_name; ["no-"~XML_name, "non-"~XML_name, "no-"~name, "non-"~name]) {
+				if (ac_def.getNode(node_name) != nil) {
+					if (ac_def.getNode(node_name).getValue()) {
+						# Disable this control
+						control_functions[name].active = 0;
+						break;
+					}
+				} else {
+					node_name ~= "s";
+					if (ac_def.getNode(node_name) != nil) {
+						if (ac_def.getNode(node_name).getValue()) {
+							control_functions[name].active = 0;
+							break;
+						}
+					}
 				}
 			}
-		} elsif (ac_def.getNode(string.Nasal_to_XML(name)) != nil)
-			control_functions[name] = ac_def.getNode(string.Nasal_to_XML(name)).getValue();
+		} elsif (typeof(control_functions[name]) == 'scalar' and ac_def.getNode(XML_name) != nil)
+			control_functions[name] = ac_def.getNode(XML_name).getValue();
 	}
 	if (ac_def.getNode("swap-spoilers-and-speedbrake") != nil and ac_def.getNode("swap-spoilers-and-speedbrake").getValue() or
 	    ac_def.getNode("swap-speedbrake-and-spoilers") != nil and ac_def.getNode("swap-speedbrake-and-spoilers").getValue())
@@ -151,7 +133,7 @@ foreach (var ac_def; config.getChildren("aircraft")) {
 <!-- ======================================== BOMBERS! AND LARGE GROUND-ATTACK ======================================== -->
 
 <aircraft>
-	<model>b36d</model> <!-- Consolidated B36 D Peacemaker -->
+	<name>b36d</name> <!-- Consolidated B36 D Peacemaker -->
 
 	<mode>
 		<name>Throttle L/R (10 engines)</name>
@@ -176,7 +158,7 @@ foreach (var ac_def; config.getChildren("aircraft")) {
 	<no-tailhook type="bool">true</no-tailhook>
 </aircraft>
 <aircraft>
-	<model>b29-model</model> <!-- Boeing B-29 Superfortress -->
+	<name>b29</name> <!-- Boeing B-29 Superfortress -->
 
 	<mode>Throttle L/R (4 engines)</mode>
 	<mode>Throttle / Flaps</mode>
@@ -184,7 +166,7 @@ foreach (var ac_def; config.getChildren("aircraft")) {
 	<no-tailhook type="bool">true</no-tailhook>
 </aircraft>
 <aircraft>
-	<model>a26</model> <!-- A 26 Invader -->
+	<name>a26</name> <!-- A 26 Invader -->
 
 	<mode>Throttle L/R (2 Engines)</mode>
 	<mode>Throttle / Flaps</mode>
@@ -192,7 +174,7 @@ foreach (var ac_def; config.getChildren("aircraft")) {
 	<no-tailhook type="bool">true</no-tailhook>
 </aircraft>
 <aircraft>
-	<model>AC-130</model> <!-- AC-130 -->
+	<name>AC-130</name> <!-- AC-130 -->
 
 	<mode>Throttle L/R (4 Engines)</mode>
 	<mode>Throttle / Pitch</mode>
@@ -201,21 +183,13 @@ foreach (var ac_def; config.getChildren("aircraft")) {
 	<no-tailhook type="bool">true</no-tailhook>
 </aircraft>
 <aircraft>
-	<model>ant20</model> <!-- Tupolev ANT 20 Maxime Gorky -->
+	<name>ant20</name> <!-- Tupolev ANT 20 Maxime Gorky -->
 
 	<mode>Throttle / Brakes</mode>
 	<no-tailhook type="bool">true</no-tailhook>
 </aircraft>
 <aircraft>
-	<model>lancaster</model> <!-- Avro Lancaster -->
-
-	<mode>Throttle L/R (4 Engines)</mode>
-	<mode>Throttle / Flaps</mode>
-	<mode>Throttle / Brakes</mode>
-	<no-tailhook type="bool">true</no-tailhook>
-</aircraft>
-<aircraft>
-	<model>B-1B</model> <!-- Rockwell B-1B Lancer -->
+	<name>lancaster</name> <!-- Avro Lancaster -->
 
 	<mode>Throttle L/R (4 Engines)</mode>
 	<mode>Throttle / Flaps</mode>
@@ -223,24 +197,84 @@ foreach (var ac_def; config.getChildren("aircraft")) {
 	<no-tailhook type="bool">true</no-tailhook>
 </aircraft>
 <aircraft>
-	<model>b2-spirit</model> <!-- Northrop B-2 Spirit -->
+	<name>B-1B</name> <!-- Rockwell B-1B Lancer -->
+
+	<mode>Throttle L/R (4 Engines)</mode>
+	<mode>Throttle / Flaps</mode>
+	<mode>Throttle / Brakes</mode>
+	<brakes>
+		<up>brakes.spoilers</up>
+	</brakes>
+	<no-tailhook type="bool">true</no-tailhook>
+</aircraft>
+<aircraft>
+	<name>b2-spirit</name> <!-- Northrop B-2 Spirit -->
 
 	<mode>Throttle L/R (4 Engines)</mode>
 	<mode>Throttle / Spoilers</mode>
 	<mode>Throttle / Brakes</mode>
 	<brakes>
-		<up>brakes.spoilers()</up>
+		<up>brakes.spoilers</up>
 	</brakes>
 	<no-tailhook type="bool">true</no-tailhook>
 </aircraft>
 <aircraft>
-	<model>BAC-TSR2-model</model> <!-- BAC TSR2 Prototype -->
+	<name>b25</name> <!-- B-25 Mitchell -->
+
+	<mode>Throttle L/R (2 Engines)</mode>
+	<mode>Throttle / Pitch</mode>
+	<mode>Throttle / Mixture</mode>
+	<mode>Throttle / Flaps</mode>
+	<mode>Throttle / Brakes</mode>
+	<no-tailhook type="bool">true</no-tailhook>
+</aircraft>
+<aircraft>
+	<name>B-52F</name> <!-- Boeing B-52 F in Arclight colour scheme -->
+
+	<mode>
+		<name>Throttle L/R (8 Engines)</name>
+		<throttle>
+			<function>throttle[0,1,2,3]</function>
+		</throttle>
+		<throttle>
+			<function>throttle[4,5,6,7]</function>
+		</throttle>
+	</mode>
+	<mode>
+		<name>Throttle / Steering</name>
+		<throttle>
+			<function>throttle</function>
+		</throttle>
+		<throttle>
+			<function>
+				setprop("/controls/gear/steering-front-norm", -arg[0]);
+				if (allow_popupTips) gui.popupTip("Steering-deg: "~sprintf("%+2f", arg[0]*-53));
+			</function>
+			<min>-1</min>
+			<max>1</max>
+		</throttle>
+		<switch-to>
+			<script>setlocalprop("axis[4]/settings/dead-band", 0.3)</script>
+		</switch-to>
+		<switch-from>
+			<script>setlocalprop("axis[4]/settings/dead-band", 0); setprop("/controls/gear/steering-front-norm", 0)</script>
+		</switch-from>
+	</mode>
+	<mode>Throttle / Spoilers</mode>
+	<mode>Throttle / Brakes</mode>
+	<brakes>
+		<up>brakes.spoilers</up>
+	</brakes>
+	<no-tailhook type="bool">true</no-tailhook>
+</aircraft>
+<aircraft>
+	<name>BAC-TSR2</name> <!-- BAC TSR2 Prototype -->
 
 	<mode>Throttle L/R (2 Engines)</mode>
 	<mode>Throttle / Flaps</mode>
 	<mode>Throttle / Brakes</mode>
 	<brakes>
-		<up>brakes.speedbrake()</up>
+		<up>brakes.speedbrake</up>
 	</brakes>
 	<swap-spoilers-and-speedbrake type="bool">true</swap-spoilers-and-speedbrake>
 	<no-tailhook type="bool">true</no-tailhook>
@@ -249,85 +283,85 @@ foreach (var ac_def; config.getChildren("aircraft")) {
 <!-- ======================================== AIRLINERS ======================================== -->
 
 <aircraft>
-	<model>707</model> <!-- Boeing 707 -->
+	<name>707</name> <!-- Boeing 707 -->
 
 	<mode>Throttle L/R (2 Engines)</mode>
 	<mode>Throttle / Flaps</mode>
 	<mode>Throttle / Spoilers</mode>
 	<mode>Throttle / Brakes</mode>
 	<brakes>
-		<up>brakes.spoilers()</up>
-		<up>brakes.thrust_reverser()</up>
+		<up>brakes.spoilers</up>
+		<up>brakes.thrust_reverser</up>
 	</brakes>
 	<swap-spoilers-and-speedbrake type="bool">true</swap-spoilers-and-speedbrake>
 	<no-tailhook type="bool">true</no-tailhook>
 </aircraft>
 <aircraft>
-	<model>boeing747-400-jw</model> <!-- Boeing 747-400 -->
-	<model>747-400</model> <!-- Boeing 747-400 -->
+	<name>boeing747-400-jw</name> <!-- Boeing 747-400 -->
+	<name>747-400</name> <!-- Boeing 747-400 -->
 
 	<mode>Throttle L/R (2 Engines)</mode>
 	<mode>Throttle / Flaps</mode>
 	<mode>Throttle / Spoilers</mode>
 	<mode>Throttle / Brakes</mode>
 	<brakes>
-		<up>brakes.spoilers()</up>
-		<up>brakes.thrust_reverser()</up>
+		<up>brakes.spoilers</up>
+		<up>brakes.thrust_reverser</up>
 	</brakes>
 	<no-tailhook type="bool">true</no-tailhook>
 </aircraft>
 <aircraft>
-	<model>717-200</model> <!-- Boeing 717-200 -->
+	<name>717-200</name> <!-- Boeing 717-200 -->
 
 	<mode>Throttle L/R (2 Engines)</mode>
 	<mode>Throttle / Flaps</mode>
 	<mode>Throttle / Spoilers</mode>
 	<mode>Throttle / Brakes</mode>
 	<brakes>
-		<up>brakes.spoilers()</up>
-		<up>brakes.thrust_reverser()</up>
+		<up>brakes.spoilers</up>
+		<up>brakes.thrust_reverser</up>
 	</brakes>
 	<swap-spoilers-and-speedbrake type="bool">true</swap-spoilers-and-speedbrake>
 	<no-tailhook type="bool">true</no-tailhook>
 </aircraft>
 <aircraft>
-	<model>737-100</model> <!-- Boeing 737-100 -->
-	<model>737-200</model> <!-- Boeing 737-200 -->
+	<name>737-100</name> <!-- Boeing 737-100 -->
+	<name>737-200</name> <!-- Boeing 737-200 -->
 
 	<mode>Throttle L/R (2 Engines)</mode>
 	<mode>Throttle / Flaps</mode>
 	<mode>Throttle / Spoilers</mode>
 	<mode>Throttle / Brakes</mode>
 	<brakes>
-		<up>brakes.spoilers()</up>
-		<up>brakes.thrust_reverser()</up>
+		<up>brakes.spoilers</up>
+		<up>brakes.thrust_reverser</up>
 	</brakes>
 	<no-tailhook type="bool">true</no-tailhook>
 </aircraft>
 <aircraft>
-	<model>777-200</model> <!-- Boeing 777-200 -->
-	<model>777-200ER</model> <!-- Boeing 777-200ER -->
-	<model>777-200LR</model> <!-- Boeing 777-200LR -->
-	<model>777-300</model> <!-- Boeing 777-200 -->
-	<model>777-300ER</model> <!-- Boeing 777-200ER -->
+	<name>777-200</name> <!-- Boeing 777-200 -->
+	<name>777-200ER</name> <!-- Boeing 777-200ER -->
+	<name>777-200LR</name> <!-- Boeing 777-200LR -->
+	<name>777-300</name> <!-- Boeing 777-200 -->
+	<name>777-300ER</name> <!-- Boeing 777-200ER -->
 
 	<mode>Throttle L/R (2 Engines)</mode>
 	<mode>Throttle / Flaps</mode>
 	<mode>Throttle / Spoilers</mode>
 	<mode>Throttle / Brakes</mode>
 	<brakes>
-		<up>brakes.spoilers()</up>
+		<up>brakes.spoilers</up>
 		<up>
 			controls.toggleAutoSpoilers();
 			if (allow_popupTips) gui.popupTip("Spoilers "~["RETRACTED", "on AUTO"][getprop("/controls/flight/speedbrake-lever")]);
 		</up>
-		<up>brakes.thrust_reverser()</up>
+		<up>brakes.thrust_reverser</up>
 	</brakes>
 	<no-tailhook type="bool">true</no-tailhook>
 </aircraft>
 <aircraft>
-	<model>787</model> <!-- Boeing 787-8 -->
-	<model>CRJ-200</model> <!-- Bombardier CRJ-200 -->
+	<name>787</name> <!-- Boeing 787-8 -->
+	<name>CRJ-200</name> <!-- Bombardier CRJ-200 -->
 
 	<mode>Throttle L/R (2 Engines)</mode>
 	<mode>Throttle / Flaps</mode>
@@ -364,7 +398,7 @@ foreach (var ac_def; config.getChildren("aircraft")) {
 				setprop("/controls/flight/spoiler", getprop("/controls/flight/spoiler")+1);
 			if (allow_popupTips) gui.popupTip("Spoilers set to "~["NONE", "AUTO", "AUTO or 2/3", "FULL"][getprop("/controls/flight/spoiler")]);
 		</up>
-		<up>brakes.thrust_reverser()</up>
+		<up>brakes.thrust_reverser</up>
 	</brakes>
 	<no-tailhook type="bool">true</no-tailhook>
 	<script>
@@ -372,8 +406,8 @@ foreach (var ac_def; config.getChildren("aircraft")) {
 	</script>
 </aircraft>
 <aircraft>
-	<model>727-230</model> <!-- Boeing 727-230 -->
-	<model>L-1011-500</model> <!-- Lockheed L-1011-500 TriStar -->
+	<name>727-230</name> <!-- Boeing 727-230 -->
+	<name>L-1011-500</name> <!-- Lockheed L-1011-500 TriStar -->
 
 	<mode>Throttle L/R (3 Engines)</mode>
 	<mode>Throttle / Flaps</mode>
@@ -385,7 +419,7 @@ foreach (var ac_def; config.getChildren("aircraft")) {
 <!-- ======================================== TRANSPORT ======================================== -->
 
 <aircraft>
-	<model>Albatross</model> <!-- Grumman Albatross -->
+	<name>Albatross</name> <!-- Grumman Albatross -->
 
 	<mode>Throttle L/R (2 Engines)</mode>
 	<mode>Throttle / Flaps</mode>
@@ -393,7 +427,7 @@ foreach (var ac_def; config.getChildren("aircraft")) {
 	<no-tailhook type="bool">true</no-tailhook>
 </aircraft>
 <aircraft>
-	<model>trimotor</model>
+	<name>trimotor</name>
 
 	<mode>Throttle L/R (3 Engines)</mode>
 	<mode>Throttle / Brakes</mode>
@@ -402,7 +436,7 @@ foreach (var ac_def; config.getChildren("aircraft")) {
 	<no-tailhook type="bool">true</no-tailhook>
 </aircraft>
 <aircraft>
-	<model>AN-225-model</model> <!-- Antonov AN-225 heavy/outsize cargo aircraft -->
+	<name>AN-225</name> <!-- Antonov AN-225 heavy/outsize cargo aircraft -->
 
 	<mode>
 		<name>Throttle L/R (6 engines)</name>
@@ -416,10 +450,10 @@ foreach (var ac_def; config.getChildren("aircraft")) {
 	<mode>Throttle / Spoilers</mode>
 	<mode>Throttle / Brakes</mode>
 	<brakes>
-		<up>brakes.spoilers()</up>
+		<up>brakes.spoilers</up>
 		<down n="1">setprop("/controls/flight/spoilers", 1)</down>
 		<up>setprop("/controls/flight/spoilers", 0)</up>
-		<up>brakes.thrust_reverser()</up>
+		<up>brakes.thrust_reverser</up>
 	</brakes>
 	<no-tailhook type="bool">true</no-tailhook>
 </aircraft>
@@ -427,27 +461,27 @@ foreach (var ac_def; config.getChildren("aircraft")) {
 <!-- ======================================== REGIONAL/COMMERICAL TURBOPROPS ======================================== -->
 
 <aircraft>
-	<model>ATR-72-500</model> <!-- ATR-72-500 -->
+	<name>ATR-72-500</name> <!-- ATR-72-500 -->
 
 	<mode>Throttle L/R (2 Engines)</mode>
 	<mode>Throttle / Flaps</mode>
 	<mode>Throttle / Brakes</mode>
 	<brakes>
-		<up>brakes.spoilers()</up>
+		<up>brakes.spoilers</up>
 		<up>brakes.thrust_reverser</up>
 	</brakes>
 	<swap-spoilers-and-speedbrake type="bool">true</swap-spoilers-and-speedbrake>
 	<no-tailhook type="bool">true</no-tailhook>
 </aircraft>
 <aircraft>
-	<model>c160</model> <!-- C 160 Transall -->
+	<name>c160</name> <!-- C 160 Transall -->
 
 	<mode>Throttle L/R (2 Engines)</mode>
 	<mode>Throttle / Pitch</mode>
 	<mode>Throttle / Flaps</mode>
 	<mode>Throttle / Brakes</mode>
 	<brakes>
-		<up>brakes.spoilers()</up>
+		<up>brakes.spoilers</up>
 		<up>brakes.thrust_reverser</up>
 	</brakes>
 	<no-tailhook type="bool">true</no-tailhook>
@@ -456,20 +490,20 @@ foreach (var ac_def; config.getChildren("aircraft")) {
 <!-- ======================================== FIGHTER/ATTACK ======================================== -->
 
 <aircraft>
-	<model>SU-37-model</model> <!-- Sukhoi SU-37 type aircraft -->
+	<name>SU-37</name> <!-- Sukhoi SU-37 type aircraft -->
 
 	<mode>Throttle L/R (2 Engines)</mode>
 	<mode>
 		<name>Throttle / Flaps &amp; Slats</name>
 		<throttle>
-			<prop>throttle</prop>
+			<function>throttle</function>
 		</throttle>
 		<throttle>
-			<prop>flaps</prop>
-			<prop>slats</prop>
+			<function>flaps</function>
+			<function>slats</function>
 			<min n="1">4</min>
 			<max n="1">0</max>
-			<prop>/controls/flight/elevator-trim</prop>
+			<function>/controls/flight/elevator-trim</function>
 			<min n="2">-0.1</min>
 			<max n="2">0</max>
 		</throttle>
@@ -487,17 +521,17 @@ foreach (var ac_def; config.getChildren("aircraft")) {
 	</script>
 </aircraft>
 <aircraft>
-	<model>F-22-Raptor</model> <!-- F-22 Raptor -->
+	<name>F-22-Raptor</name> <!-- F-22 Raptor -->
 
 	<mode>Throttle L/R (2 Engines)</mode>
 	<mode>
 		<name>Throttle / Flaps &amp; Slats</name>
 		<throttle>
-			<prop>throttle</prop>
+			<function>throttle</function>
 		</throttle>
 		<throttle>
-			<prop>flaps</prop>
-			<prop>slats</prop>
+			<function>flaps</function>
+			<function>slats</function>
 			<min n="1">4</min>
 			<max n="1">0</max>
 		</throttle>
@@ -510,25 +544,25 @@ foreach (var ac_def; config.getChildren("aircraft")) {
 	<no-tailhook type="bool">true</no-tailhook>
 </aircraft>
 <aircraft>
-	<model>FA-18</model> <!-- F/A-18 Hornet -->
+	<name>FA-18</name> <!-- F/A-18 Hornet -->
 
 	<mode>Throttle L/R (2 Engines)</mode>
 	<mode>Throttle / Flaps</mode>
 	<mode>Throttle / Brakes</mode>
 	<brakes>
-		<up>brakes.speedbrake()</up>
+		<up>brakes.speedbrake</up>
 	</brakes>
 </aircraft>
 <aircraft>
-	<model>A-6E-model</model> <!-- Grumman A-6E -->
+	<name>A-6E</name> <!-- Grumman A-6E -->
 
 	<mode>Throttle L/R (2 Engines)</mode>
 	<mode>Throttle / Flaps</mode>
 	<mode>Throttle / Spoilers</mode>
 	<mode>Throttle / Brakes</mode>
 	<brakes>
-		<up>brakes.speedbrake()</up>
-		<up>brakes.spoilers()</up>
+		<up>brakes.speedbrake</up>
+		<up>brakes.spoilers</up>
 	</brakes>
 	<script>
 		# A hack to allow the stepped flaps to work properly :-)
@@ -538,35 +572,35 @@ foreach (var ac_def; config.getChildren("aircraft")) {
 	</script>
 </aircraft>
 <aircraft>
-	<model>A-10-model</model> <!-- Fairchild A-10 -->
+	<name>A-10</name> <!-- Fairchild A-10 -->
 
 	<mode>Throttle L/R (2 Engines)</mode>
 	<mode>Throttle / Flaps</mode>
 	<mode>Throttle / Spoilers</mode>
 	<mode>Throttle / Brakes</mode>
 	<brakes>
-		<up>brakes.spoilers()</up>
+		<up>brakes.spoilers</up>
 	</brakes>
 	<no-tailhook type="bool">true</no-tailhook>
 </aircraft>
 <aircraft>
-	<model>f-14b</model> <!-- Grumman F-14b -->
+	<name>f-14b</name> <!-- Grumman F-14b -->
 
 	<mode>Throttle L/R (2 Engines)</mode>
 	<mode>
 		<name>Throttle / DLC</name>
 		<throttle>
-			<prop>throttle</prop>
+			<function>throttle</function>
 		</throttle>
 		<throttle>
-			<prop>DLC</prop>
+			<function>DLC</function>
 			<min>1</min>
 			<max>0</max>
 		</throttle>
 	</mode>
 	<mode>Throttle / Brakes</mode>
 	<brakes>
-		<up>brakes.speedbrake()</up>
+		<up>brakes.speedbrake</up>
 		<up>
 			var DLC = getprop("/controls/flight/DLC");
 			setprop("/controls/flight/DLC", !DLC);
@@ -582,48 +616,48 @@ foreach (var ac_def; config.getChildren("aircraft")) {
 	</script>
 </aircraft>
 <aircraft>
-	<model>f16</model> <!-- General Dynamics F-16 -->
+	<name>f16</name> <!-- General Dynamics F-16 -->
 
 	<mode>
 		<name>Throttle / Brakes &amp; Speedbrake</name>
 		<throttle>
-			<prop>throttle</prop>
+			<function>throttle</function>
 		</throttle>
 		<throttle>
-			<prop>brake-cmd</prop>
-			<prop>/controls/flight/speedbrake</prop>
+			<function>brake-cmd</function>
+			<function>/controls/flight/speedbrake</function>
 			<min n="1">bool</min>
 			<max n="1">-0.3</max>
 		</throttle>
 	</mode>
 	<brakes>
-		<up>brakes.speedbrake()</up>
+		<up>brakes.speedbrake</up>
 	</brakes>
 	<no-flaps type="bool">1</no-flaps>
 </aircraft>
 <aircraft>
-	<model>f16afti</model>
+	<name>f16afti</name>
 
 	<mode>Throttle / Flaps</mode>
 	<mode>
 		<name>Throttle / Brakes &amp; Speedbrake</name>
 		<throttle>
-			<prop>throttle</prop>
+			<function>throttle</function>
 		</throttle>
 		<throttle>
-			<prop>brake-cmd</prop>
-			<prop>/controls/flight/speedbrake</prop>
+			<function>brake-cmd</function>
+			<function>/controls/flight/speedbrake</function>
 			<min n="1">bool</min>
 			<max n="1">-0.3</max>
 		</throttle>
 	</mode>
 	<brakes>
-		<up>brakes.speedbrake()</up>
+		<up>brakes.speedbrake</up>
 	</brakes>
 </aircraft>
 <aircraft>
-	<model>RafaleB17-model</model> <!-- Dassault Rafale B Escadron de chasse 1/7 provence -->
-	<model>RafaleT08-model</model> <!-- Dassault Rafale B Tigermeet 2008 -->
+	<name>RafaleB17</name> <!-- Dassault Rafale B Escadron de chasse 1/7 provence -->
+	<name>RafaleT08</name> <!-- Dassault Rafale B Tigermeet 2008 -->
 
 	<mode>Throttle L/R (2 Engines)</mode>
 	<mode>Throttle / Flaps</mode>
@@ -631,40 +665,40 @@ foreach (var ac_def; config.getChildren("aircraft")) {
 	<no-tailhook type="bool">true</no-tailhook>
 </aircraft>
 <aircraft>
-	<model>a4f</model> <!-- Douglas A4F Skyhawk -->
+	<name>a4f</name> <!-- Douglas A4F Skyhawk -->
 
 	<mode>Throttle / Flaps</mode>
 	<mode>Throttle / Spoilers</mode>
 	<mode>Throttle / Speedbrake</mode>
 	<mode>Throttle / Brakes</mode>
 	<brakes>
-		<up>brakes.speedbrake()</up>
-		<up>brakes.spoilers()</up>
+		<up>brakes.speedbrake</up>
+		<up>brakes.spoilers</up>
 	</brakes>
 </aircraft>
 <aircraft>
-	<model>FA-XX</model> <!-- Boeing F/A-XX -->
+	<name>FA-XX</name> <!-- Boeing F/A-XX -->
 
 	<mode>Throttle L/R (2 Engines)</mode>
 	<mode>Throttle / Flaps</mode>
 	<mode>Throttle / Brakes</mode>
 	<brakes>
-		<up>brakes.speedbrake()</up>
+		<up>brakes.speedbrake</up>
 	</brakes>
 	<no-tailhook type="bool">true</no-tailhook>
 </aircraft>
 <aircraft>
-	<model>buccaneer-model</model> <!-- Blackburn Buccaneer S2 -->
+	<name>buccaneer</name> <!-- Blackburn Buccaneer S2 -->
 
 	<mode>Throttle L/R (2 Engines)</mode>
 	<mode>
 		<name>Throttle / Flaps &amp; Aileron Droop</name>
 		<throttle>
-			<prop>throttle</prop>
+			<function>throttle</function>
 		</throttle>
 		<throttle>
-			<prop>flaps</prop>
-			<prop>aileron-droop</prop>
+			<function>flaps</function>
+			<function>aileron-droop</function>
 			<min n="1">1</min>
 			<max n="1">0</max>
 		</throttle>
@@ -678,290 +712,511 @@ foreach (var ac_def; config.getChildren("aircraft")) {
 <!-- ======================================== MIL. PROPS ======================================== -->
 
 <aircraft>
-<script>
-
-
-if (model == "f7f") { #Grumman F7F Tigercat
-
-	addmode("2 Engines", "throttle[0]", "throttle[1]");
-	addmode("Throttle / Pitch", "controls.throttleAxis()", "controls.propellerAxis()");
-	addmode("Throttle / Brakes", "controls.throttleAxis()", "brake-cmd");
-	brakes.down = [func{},func{},func{}]; brakes.up = [func{},func{},func{}];
-	retractable_gear = 1; tailhook_enabled = 0; has_flaps = 1;
-
-} elsif (model == "PC-9M") { #Pilatus PC-9M
-
-	addmode("Throttle / Flaps",  "controls.throttleAxis()", "controls.flapsAxis()");
-	addmode("Throttle / Brakes", "controls.throttleAxis()", "brake-cmd");
-	brakes.down = [func{},func{},func{}]; brakes.up = [brakes.speedbrake,func{},func{}];
-	retractable_gear = 1; tailhook_enabled = 0; has_flaps = 1;
-
-} elsif (model == "AD-6") { #Douglas AD-6 Skyraider
-
-	addmode("Throttle / Pitch",  "controls.throttleAxis()", "controls.propellerAxis()");
-	addmode("Throttle / Flaps",  "controls.throttleAxis()", "controls.flapsAxis()");
-	addmode("Throttle / Brakes", "controls.throttleAxis()", "brake-cmd");
-	brakes.down = [func{},func{},func{setprop("/fdm/jsbsim/systems/armament/release", 1)}]; brakes.up = [brakes.speedbrake,func{},func{setprop("/fdm/jsbsim/systems/armament/release", 0)}];
-	retractable_gear = 1; tailhook_enabled = 1; has_flaps = 1;
-
-} elsif (model == "a6m2-anim") { #A6M2 Zero
-
-	addmode("Throttle / Brakes", "controls.throttleAxis()", "brake-cmd");
-	addmode("Throttle / Flaps", "controls.throttleAxis()", "controls.flapsAxis()");
-	brakes.down = [func{},func{},func{}]; brakes.up = [func{},func{},func{}];
-	retractable_gear = 1; tailhook_enabled = 1; has_flaps = 1;
-
-} elsif (model == "Beaufighter") { #Beaufighter
-
-	addmode("2 Engines", "throttle[0]", "throttle[1]");
-	addmode("Throttle / Flaps", "controls.throttleAxis()", "controls.flapsAxis()");
-	addmode("Throttle / Brakes", "controls.throttleAxis()", "brake-cmd");
-	brakes.down = [func{},func{},func{}]; brakes.up = [func{},func{},func{}];
-	retractable_gear = 1; tailhook_enabled = 1; has_flaps = 1;
-
-# ======================================== G-AVIATION ======================================== #
-
-} elsif (model == "pa24-250-CIII" or model == "pa24-250-CIIB") { #Piper Commanche 250, CIII autopilot; Piper Commanche 250, CIIB autopilot
-
-	addmode("Throttle / Flaps",  "controls.throttleAxis()", "controls.flapsAxis()");
-	addmode("Throttle / Pitch",  "controls.throttleAxis()", "controls.propellerAxis()");
-	addmode("Throttle / Brakes", "controls.throttleAxis()", "brake-cmd");
-	brakes.down = [func{},func{},func{}]; brakes.up = [func{},func{},func{}];
-	retractable_gear = 1; tailhook_enabled = 0; has_flaps = 1;
-
-} elsif (model == "a24") { #Aeroprakt A 24 Viking
-
-	addmode("Throttle / Flaps",  "controls.throttleAxis()", "controls.flapsAxis()");
-	addmode("Throttle / Gear",  "controls.throttleAxis()", ["/controls/gear/gear-down", "-bool"]);
-	addmode("Throttle / Brakes", "controls.throttleAxis()", "brake-cmd");
-	brakes.down = [func{},func{},func{}]; brakes.up = [func{},func{},func{}];
-	retractable_gear = 1; tailhook_enabled = 0; has_flaps = 1;
-
-} elsif (model == "aerostar") { #Aerostar Super 700
-
-	addmode("2 Engines", "throttle[0]", "throttle[1]");
-	addmode("Throttle / Flaps",  "controls.throttleAxis()", "controls.flapsAxis()");
-	addmode("Throttle / Brakes", "controls.throttleAxis()", "brake-cmd");
-	brakes.down = [func{},func{},func{}]; brakes.up = [func{},func{},func{}];
-	retractable_gear = 1; tailhook_enabled = 0; has_flaps = 1;
-
-} elsif (model == "AG-14" or model == "an2-model" or model == "arup-s2") { #Anderson-Greenwood AG-14; Legendary Russian AN-2; Arup S2
-
-	addmode("Throttle / Mixture",  "controls.throttleAxis()", "controls.mixtureAxis()");
-	addmode("Throttle / Flaps",  "controls.throttleAxis()", "controls.flapsAxis()");
-	addmode("Throttle / Brakes", "controls.throttleAxis()", "brake-cmd");
-	brakes.down = [func{},func{},func{}]; brakes.up = [func{},func{},func{}];
-	retractable_gear = 0; tailhook_enabled = 0; has_flaps = 1;
-
-} elsif (model == "allegroF" or model == "allegroW") { #Allegro 2000 (Float); Allegro 2000 (Wheels)
-
-	addmode("Throttle / Flaps",  "controls.throttleAxis()", "controls.flapsAxis()");
-	if (model == "allegroW")
-		addmode("Throttle / Brakes", "controls.throttleAxis()", "brake-cmd");
-	brakes.down = [func{},func{},func{}]; brakes.up = [func{},func{},func{}];
-	retractable_gear = 0; tailhook_enabled = 0; has_flaps = 1;
-
-} elsif (model == "B1900D") { #Beechcraft b1000d
-
-	addmode("2 Engines", "throttle[0]", "throttle[1]");
-	addmode("Throttle / Pitch",  "controls.throttleAxis()", "controls.propellerAxis()");
-	addmode("Throttle / Flaps",  "controls.throttleAxis()", "flaps");
-	addmode("Throttle / Speedbrake",  "controls.throttleAxis()", "speedbrake");
-	addmode("Throttle / Brakes", "controls.throttleAxis()", "brake-cmd");
-	brakes.down = [func{},func{},func{}]; brakes.up = [func{},func{},func{}];
-	retractable_gear = 1; tailhook_enabled = 0; has_flaps = 1;
-
-} elsif (model == "model17") { #Beechcraft Staggerwing
-
-	addmode("Throttle / Mixture",  "controls.throttleAxis()", "controls.mixtureAxis()");
-	addmode("Throttle / Flaps",  "controls.throttleAxis()", "controls.flapsAxis()");
-	addmode("Throttle / Brakes", "controls.throttleAxis()", "brake-cmd");
-	brakes.down = [func{},func{},func{}]; brakes.up = [func{},func{},func{}];
-	retractable_gear = 1; tailhook_enabled = 0; has_flaps = 1;
-
-} elsif (model == "hv220") { #Bernard HV 220
-
-	addmode("Throttle", "controls.throttleAxis()", "controls.propellerAxis()");
-	brakes.down = [func{},func{},func{}]; brakes.up = [func{},func{},func{}];
-	retractable_gear = 0; tailhook_enabled = 0; has_flaps = 1;
-
-} elsif (model == "bugatti") { #Bugatti model 100P
-
-	addmode("Throttle / Flaps",  "controls.throttleAxis()", "controls.flapsAxis()");
-	addmode("Throttle / Brakes", "controls.throttleAxis()", "brake-cmd");
-	brakes.down = [func{},func{},func{}]; brakes.up = [func{},func{},func{}];
-	retractable_gear = 1; tailhook_enabled = 0; has_flaps = 1;
-
-} elsif (model == "bv141") { #Blohm und Voss BV141
-
-	addmode("Throttle / Pitch",  "controls.throttleAxis()", "controls.propellerAxis()");
-	addmode("Throttle / Flaps",  "controls.throttleAxis()", "controls.flapsAxis()");
-	addmode("Throttle / Brakes", "controls.throttleAxis()", "brake-cmd");
-	brakes.down = [func{},func{},func{}]; brakes.up = [func{},func{},func{}];
-	retractable_gear = 1; tailhook_enabled = 0; has_flaps = 1;
-
-} elsif (model == "bv170") { #Blohm und Voss BV170
-
-	addmode("3 Engines", ["throttle[0]","average2"], ["throttle[2]", "average2"]);
-	addmode("Throttle / Pitch",  "controls.throttleAxis()", "controls.propellerAxis()");
-	addmode("Throttle / Flaps",  "controls.throttleAxis()", "controls.flapsAxis()");
-	addmode("Throttle / Brakes", "controls.throttleAxis()", "brake-cmd");
-	brakes.down = [func{},func{},func{}]; brakes.up = [func{},func{},func{}];
-	retractable_gear = 1; tailhook_enabled = 0; has_flaps = 1;
-
-} elsif (model == "cl415") { #Bombardier 415
-
-	addmode("2 Engines", "throttle[0]", "throttle[1]");
-	addmode("Throttle / Pitch",  "controls.throttleAxis()", "controls.propellerAxis()");
-	addmode("Throttle / Flaps",  "controls.throttleAxis()", "controls.flapsAxis()");
-	addmode("Throttle / Brakes", "controls.throttleAxis()", "brake-cmd");
-	brakes.down = [func{},func{},func{}]; brakes.up = [func{},func{},func{}];
-	retractable_gear = 1; tailhook_enabled = 0; has_flaps = 1;
-
-} elsif (model == "c172p") { #Cessna 172P Skyhawk (1981 model)
-
-	addmode("Throttle / Mixture",  "controls.throttleAxis()", "controls.mixtureAxis()");
-	addmode("Throttle / Flaps",  "controls.throttleAxis()", "controls.flapsAxis()");
-	addmode("Throttle / Brakes", "controls.throttleAxis()", "brake-cmd");
-	brakes.down = [func{},func{},func{}]; brakes.up = [func {
-		setprop("/controls/lighting/landing-lights", var v = !getprop("/controls/lighting/landing-lights"));
-		if (allow_popupTips) gui.popupTip("Landing light "~v?"on":"off");
-	},func{},func{}];
-	retractable_gear = 0; tailhook_enabled = 0; has_flaps = 1;
-
-# ======================================== TRAINERS/AEROBATIC JETS ======================================== #
-
-} elsif (model == "l39") { #Aero Vodochody L-39 Albatros
-
-	addmode("Throttle / Flaps", "controls.throttleAxis()", "controls.flapsAxis()",);
-	addmode("Throttle / Brakes", "controls.throttleAxis()", "brake-cmd");
-	brakes.down = [func{},func{},func{}]; brakes.up = [func{},func{},func{}];
-	retractable_gear = 1; tailhook_enabled = 0; has_flaps = 1;
-
-} elsif (model == "alphajet") { #Dassault/Dornier Alphajet
-
-	addmode("Throttle / Flaps", "controls.throttleAxis()", "controls.flapsAxis()");
-	addmode("Throttle / Brakes", "controls.throttleAxis()", "brake-cmd");
-	brakes.down = [func{},func{},func{}]; brakes.up = [brakes._speedbrake,func{},func{}];
-	retractable_gear = 1; tailhook_enabled = 0; has_flaps = 1;
-
-# ======================================== AEROBATIC PROPS ======================================== #
-
-} elsif (model == "ZivkoEdge540") { #Zivko Edge 540
-
-	addmode("Throttle / Pitch",  "controls.throttleAxis()", "controls.propellerAxis()");
-	addmode("Throttle / Brakes", "controls.throttleAxis()", "brake-cmd");
-	brakes.down = [func{},func{},func{}]; brakes.up = [func{},func{},func{}];
-	retractable_gear = 0; tailhook_enabled = 0; has_flaps = 1;
-
-# ======================================== ULTRALIGHT/(HANG-)GLIDERS ======================================== #
-
-} elsif (model == "Dragonfly") { #Moyes Dragonfly
-
-	addmode("Throttle &amp; Starter / Brakes", ["controls.throttleAxis()", "/controls/engines/engine/starter", "bool"], "brake-cmd");
-	brakes.down = [func{},func{},func{}]; brakes.up = [func{},func{},func{}];
-	retractable_gear = 0; tailhook_enabled = 0; has_flaps = 0;
-
-} elsif (model == "ask13" or model == "ask21") { #Schleicher ASK 13 Glider; Schleicher ASK 21 Glider
-
-	if (model == "ask21")
-		addmode("Speedbrake / Brakes", ["controls.throttleAxis()", -1], "brake-cmd");
-	else
-		addmode("Speedbrake / Brakes", "controls.throttleAxis()", "brake-cmd");
-	brakes.down = [func{},func{},func{}]; brakes.up = [func{},func{},func{}];
-	retractable_gear = 0; tailhook_enabled = 0; has_flaps = 0;
-
-} elsif (model == "ask21mi") { #Schleicher ASK 21 mi
-
-	addmode("Throttle / SLS Unit &amp; Starter", "controls.throttleAxis()", """
-		var starter = arg[0] &gt; 0.85;
-		var SLS = arg[0] &gt; 0.2;
-		setprop(\"/controls/engines/engine/starter\", starter);
-		if (ask21mi.doorsystem.passenger.target == SLS)
-			ask21mi.doorsystem.passengerexport();
-	""");
-	addmode("Speedbrake / Brakes", ["/controls/flight/spoilers", -1], "brake-cmd");
-	brakes.down = [func{},func{},func{}]; brakes.up = [func{},func{},func{}];
-	retractable_gear = 0; tailhook_enabled = 0; has_flaps = 0;
-
-} elsif (model == "JT-5B") { #JT-5B Autogyro (YASim)
-
-	addmode("Throttle / Composite (Rotorbrake | none | Starter)", "controls.throttleAxis()", """
-		var starter = arg[0] &gt; 0.85;
-		var brake = arg[0] &gt; 0.2 or in_air() ? 0 : (0.2-arg[0])/0.2;
-		setprop(\"/controls/engines/engine/starter\", starter);
-		setprop(\"/controls/rotor/brake\", brake);
-	""");
-	addmode("Throttle / Brakes", "controls.throttleAxis()", "brake-cmd");
-	brakes.down = [func{},func{},func{}]; brakes.up = [func{},func{},func{}];
-	retractable_gear = 0; tailhook_enabled = 0; has_flaps = 0;
-
-# ======================================== HISTORICAL ======================================== #
-
-} elsif (model == "14bis") { #14bis Santos DUMONT
-
-	addmode("Throttle / Starter", "controls.throttleAxis()", ["/controls/engines/engine/starter", "bool"]);
-
-# ======================================== HELIS ======================================== #
-
-} elsif (model == "H21-piasecki" or model == "ka50" or model == "dauphin" or model == "ch53e-model" or model == "CH47" or
-         model == "bell222x" or model == "aircrane" or model == "uh1" or model == "uh60" or model == "R22" or model == "Lynx-WG13" or
-         model == "mi24" or model == "superfrelon") {
-
-	addmode("Collective", ["controls.throttleAxis()", -1], "controls.propellerAxis()");
-	tailhook_enabled = 0; has_flaps = 0;
-
-} elsif (model == "bo105") {
-
-	addmode("Throttle &amp; Power", ["controls.throttleAxis()", 1, 0], """
-	            # Raw Access:
-	            setprop(\"/controls/engines/engine[0]/power\", bo105.engines.engine[0].power=arg[0]);
-	            setprop(\"/controls/engines/engine[1]/power\", bo105.engines.engine[1].power=arg[0]);
-	        """);
-
-# ======================================== VTOL ======================================== #
-
-} elsif (model == "harrier-model") { #British Aerospace Harrier
-
-	addmode("Throttle / Vector", "controls.throttleAxis()", ["controls.mixtureAxis()", 0.4, 0.3]);
-	addmode("Throttle / Flaps",  "controls.throttleAxis()",  "controls.flapsAxis()");
-	addmode("Throttle / Flaps &amp; Vector", "controls.throttleAxis()", ["controls.mixtureAxis()", 0.4, 0.3, "controls.flapsAxis()"]);
-	addmode("Throttle / Brakes", "controls.throttleAxis()", "brake-cmd");
-	brakes.down = [func{},func{},func{}]; brakes.up = [brakes._spoilers,func{},func{}];
-	retractable_gear = 1; tailhook_enabled = 0; has_flaps = 1;
-
-} elsif (model == "F-35B") { #Lockheed Martin F-35B Lightning II
-
-	addmode("Throttle / Mixture", "controls.throttleAxis()", ["f35.tiltAxis()", 0.8, nil]);
-	addmode("Throttle / Brakes", "controls.throttleAxis()", "brake-cmd");
-	brakes.down = [func{},func{},func{}]; brakes.up = [brakes.speedbrake,func{},func{}];
-	retractable_gear = 1; tailhook_enabled = 0; has_flaps = 0;
-
-} elsif (model == "v22") { #Bell Boeing V-22 Osprey
-
-	addmode("Throttle / Engines", ["controls.throttleAxis()", -1], "v22.tiltAxis()");
-	addmode("Throttle / Brakes", "controls.throttleAxis()", "brake-cmd");
-	brakes.down = [func{},func{},func{}]; brakes.up = [func{},func{},func{}];
-	retractable_gear = 1; tailhook_enabled = 0; has_flaps = 0;
-
-# ======================================== DEFAULT ======================================== #
-# [gasp] the horror! ;-)
-
-} else {
-
-	addmode("Throttle / Pitch", "controls.throttleAxis()", "controls.propellerAxis()");
-	addmode("2 Engines",  "throttle[0]", "throttle[1]");
-	addmode("3 Engines", ["throttle[0]","average2"], ["throttle[2]", "average2"]);
-	addmode("4 Engines", "throttle[0,1]", "throttle[2,3]");
-#	addmode("5 Engines", ["throttle[0],1]", "average4"],
-#	                     ["throttle[2,3]", "average4"]);
-	addmode("Collective",        ["controls.throttleAxis()", -1], "controls.propellerAxis()"); #reverse throttle
-	addmode("Throttle / Mixture", "controls.throttleAxis()", "controls.mixtureAxis()");
-	addmode("Throttle / Flaps",   "controls.throttleAxis()", "controls.flapsAxis()");
-	addmode("Throttle / Brakes",  "controls.throttleAxis()", "brake-cmd");
-}
-
-</script>
+	<name>f7f</name> <!-- Grumman F7F Tigercat -->
+
+	<mode>Throttle L/R (2 Engines)</mode>
+	<mode>Throttle / Pitch</mode>
+	<mode>Throttle / Brakes</mode>
+	<no-tailhook type="bool">true</no-tailhook>
+</aircraft>
+<aircraft>
+	<name>PC-9M</name> <!-- Pilatus PC-9M -->
+	<name>PC-21</name> <!-- Pilatus PC-21 -->
+
+	<mode>Throttle / Flaps</mode>
+	<mode>Throttle / Brakes</mode>
+	<brakes>
+		<up>brakes.speedbrake</up>
+	</brakes>
+	<no-tailhook type="bool">true</no-tailhook>
+</aircraft>
+<aircraft>
+	<name>AD-6</name> <!-- Douglas AD-6 Skyraider -->
+
+	<mode>Throttle / Pitch</mode>
+	<mode>Throttle / Flaps</mode>
+	<mode>Throttle / Brakes</mode>
+	<brakes>
+		<up>brakes.speedbrake</up>
+		<down n="2">
+			setprop("/fdm/jsbsim/systems/armament/release", 1)
+		</down>
+		<up n="2">
+			setprop("/fdm/jsbsim/systems/armament/release", 0)
+		</up>
+	</brakes>
+</aircraft>
+<aircraft>
+	<name>a6m2-anim</name> <!-- A6M2 Zero -->
+	<name>val</name> <!-- Aichi D3A -->
+
+	<mode>Throttle / Pitch</mode>
+	<mode>Throttle / Mixture</mode>
+	<mode>Throttle / Flaps</mode>
+	<mode>Throttle / Brakes</mode>
+</aircraft>
+<aircraft>
+	<name>Beaufighter</name> <!-- Beaufighter -->
+
+	<mode>Throttle L/R (2 Engines)</mode>
+	<mode>Throttle / Flaps</mode>
+	<mode>Throttle / Brakes</mode>
+</aircraft>
+
+<!-- ======================================== G-AVIATION ======================================== -->
+
+<aircraft>
+	<name>pa24-250-CIII</name> <!-- Piper Commanche 250, CIII autopilot -->
+	<name>pa24-250-CIIB</name> <!-- Piper Commanche 250, CIIB autopilot -->
+
+	<mode>Throttle / Flaps</mode>
+	<mode>Throttle / Pitch</mode>
+	<mode>Throttle / Brakes</mode>
+	<no-tailhook type="bool">true</no-tailhook>
+</aircraft>
+<aircraft>
+	<name>a24</name> <!-- Aeroprakt A 24 Viking -->
+
+	<mode>Throttle / Flaps</mode>
+	<mode>
+		<name>Throttle / Gear</name>
+		<throttle>
+			<function>throttle</function>
+		</throttle>
+		<throttle>
+			<function>retractable_gear</function>
+			<min>-bool</min>
+		</throttle>
+	</mode>
+	<mode>Throttle / Brakes</mode>
+	<no-tailhook type="bool">true</no-tailhook>
+</aircraft>
+<aircraft>
+	<name>aerostar</name> <!-- Aerostar Super 700 -->
+
+	<mode>Throttle L/R (2 Engines)</mode>
+	<mode>Throttle / Flaps</mode>
+	<mode>Throttle / Brakes</mode>
+	<no-tailhook type="bool">true</no-tailhook>
+</aircraft>
+<aircraft>
+	<name>AG-14</name> <!-- Anderson-Greenwood AG-14 -->
+	<name>an2</name> <!-- Legendary Russian AN-2 -->
+	<name>arup-s2</name> <!-- Arup S2 -->
+
+	<mode>Throttle / Mixture</mode>
+	<mode>Throttle / Flaps</mode>
+	<mode>Throttle / Brakes</mode>
+	<no-tailhook type="bool">true</no-tailhook>
+</aircraft>
+<aircraft>
+	<name>allegroF</name> <!-- Allegro 2000 (Float) -->
+
+	<mode>Throttle / Flaps</mode>
+	<non-retractable-gear type="bool">true</non-retractable-gear>
+	<no-tailhook type="bool">true</no-tailhook>
+</aircraft>
+<aircraft>
+	<name>allegroW</name> <!-- Allegro 2000 (Wheels) -->
+	<name>katana</name> <!-- Diamond DA 20 Katana -->
+
+	<mode>Throttle / Mixture</mode>
+	<mode>Throttle / Flaps</mode>
+	<mode>Throttle / Brakes</mode>
+	<non-retractable-gear type="bool">true</non-retractable-gear>
+	<no-tailhook type="bool">true</no-tailhook>
+</aircraft>
+<aircraft>
+	<name>B1900D</name> <!-- Beechcraft b1900d -->
+
+	<mode>Throttle L/R (2 Engines)</mode>
+	<mode>Throttle / Pitch</mode>
+	<mode>Throttle / Flaps</mode>
+	<mode>Throttle / Brakes</mode>
+	<no-tailhook type="bool">true</no-tailhook>
+</aircraft>
+<aircraft>
+	<name>model17</name> <!-- Beechcraft Staggerwing -->
+
+	<mode>Throttle / Mixture</mode>
+	<mode>Throttle / Flaps</mode>
+	<mode>Throttle / Brakes</mode>
+	<no-tailhook type="bool">true</no-tailhook>
+</aircraft>
+<aircraft>
+	<name>hv220</name> <!-- Bernard HV 220 -->
+
+	<mode>Throttle</mode>
+	<non-retractable-gear type="bool">true</non-retractable-gear>
+	<no-tailhook type="bool">true</no-tailhook>
+</aircraft>
+<aircraft>
+	<name>bugatti</name> <!-- Bugatti model 100P -->
+
+	<mode>Throttle / Flaps</mode>
+	<mode>Throttle / Brakes</mode>
+	<no-tailhook type="bool">true</no-tailhook>
+</aircraft>
+<aircraft>
+	<name>bv151</name> <!-- Blohm und Voss BV141 -->
+
+	<mode>Throttle / Pitch</mode>
+	<mode>Throttle / Flaps</mode>
+	<mode>Throttle / Brakes</mode>
+	<no-tailhook type="bool">true</no-tailhook>
+</aircraft>
+<aircraft>
+	<name>bv170</name> <!-- Blohm und Voss BV170 -->
+
+	<mode>Throttle L/R (3 Engines)</mode>
+	<mode>Throttle / Pitch</mode>
+	<mode>Throttle / Flaps</mode>
+	<mode>Throttle / Brakes</mode>
+	<no-tailhook type="bool">true</no-tailhook>
+</aircraft>
+<aircraft>
+	<name>cl415</name> <!-- Bombardier 415 -->
+
+	<mode>Throttle L/R (2 Engines)</mode>
+	<mode>Throttle / Pitch</mode>
+	<mode>Throttle / Flaps</mode>
+	<mode>Throttle / Brakes</mode>
+	<no-tailhook type="bool">true</no-tailhook>
+</aircraft>
+<aircraft>
+	<name>c172p</name> <!-- Cessna 172P Skyhawk (1981 model) -->
+	<name>pa28-161</name> <!-- Piper Cherokee Warrior II (1979 model) -->
+
+	<mode>Throttle / Mixture</mode>
+	<mode>Throttle / Flaps</mode>
+	<mode>Throttle / Brakes</mode>
+	<brakes>
+		<up n="1">
+			setprop("/controls/lighting/landing-lights", var v = !getprop("/controls/lighting/landing-lights"));
+			if (allow_popupTips) gui.popupTip("Landing light "~v?"on":"off");
+		</up>
+	</brakes>
+	<non-retractable-gear type="bool">true</non-retractable-gear>
+	<no-tailhook type="bool">true</no-tailhook>
+	<script>
+		control_functions.starter.prop = "/controls/switches/starter";
+	</script>
+</aircraft>
+
+<!-- ======================================== TRAINERS/AEROBATIC JETS ======================================== -->
+
+<aircraft>
+	<name>l39</name> <!-- Aero Vodochody L-39 Albatros -->
+
+	<mode>Throttle / Flaps</mode>
+	<mode>Throttle / Brakes</mode>
+	<no-tailhook type="bool">true</no-tailhook>
+</aircraft>
+<aircraft>
+	<name>alphajet</name> <!-- Dassault/Dornier Alphajet -->
+
+	<mode>Throttle L/R (2 Engines)</mode>
+	<mode>Throttle / Flaps</mode>
+	<mode>
+		<name>Throttle / Smoke</name>
+		<throttle>
+			<function>throttle</function>
+		</throttle>
+		<throttle>
+			<function>/sim/multiplay/generic/int[6]</function>
+			<min>bool</min>
+		</throttle>
+	</mode>
+	<mode>Throttle / Brakes</mode>
+	<no-tailhook type="bool">true</no-tailhook>
+</aircraft>
+
+<!-- ======================================== AEROBATIC PROPS ======================================== -->
+
+<aircraft>
+	<name>ZivkoEdge540</name> <!-- Zivko Edge 540 -->
+
+	<mode>Throttle / Pitch</mode>
+	<mode>Throttle / Brakes</mode>
+	<non-retractable-gear type="bool">true</non-retractable-gear>
+	<no-tailhook type="bool">true</no-tailhook>
+</aircraft>
+
+<!-- ======================================== ULTRALIGHT/(HANG-)GLIDERS ======================================== -->
+
+<aircraft>
+	<name>Dragonfly</name> <!-- Moyes Dragonfly -->
+
+	<mode>Throttle / Brakes</mode>
+	<brakes>
+		<down>setprop("/controls/engines/engine/starter", 1)</down>
+		<up>setprop("/controls/engines/engine/starter", 0)</up>
+	</brakes>
+	<non-retractable-gear type="bool">true</non-retractable-gear>
+	<no-flaps type="bool">true</no-flaps>
+	<no-tailhook type="bool">true</no-tailhook>
+</aircraft>
+<aircraft>
+	<name>ask13</name> <!-- Schleicher ASK 13 Glider -->
+
+	<mode>
+		<name>Speedbrake / Brakes</name>
+		<throttle>
+			<function>throttle</function>
+			<min>1</min>
+			<max>0</max>
+		</throttle>
+		<throttle>
+			<function>brakes</function>
+		</throttle>
+	</mode>
+	<non-retractable-gear type="bool">true</non-retractable-gear>
+	<no-flaps type="bool">true</no-flaps>
+	<no-tailhook type="bool">true</no-tailhook>
+</aircraft>
+<aircraft>
+	<name>ask21</name> <!-- Schleicher ASK 21 Glider -->
+
+	<mode>
+		<name>Speedbrake / Brakes</name>
+		<throttle>
+			<function>throttle</function>
+			<min>0</min>
+			<max>1</max>
+		</throttle>
+		<throttle>
+			<function>brakes</function>
+		</throttle>
+	</mode>
+	<non-retractable-gear type="bool">true</non-retractable-gear>
+	<no-flaps type="bool">true</no-flaps>
+	<no-tailhook type="bool">true</no-tailhook>
+</aircraft>
+<aircraft>
+	<name>ask21mi</name> <!-- Schleicher ASK 21 mi -->
+
+	<mode>
+		<name>Throttle / SLS Unit &amp; Starter</name>
+		<throttle>
+			<function>throttle</function>
+		</throttle>
+		<throttle>
+			<function>
+				var starter = arg[0] &gt; 0.85;
+				var SLS = arg[0] &gt; 0.2;
+				setprop(\"/controls/engines/engine/starter\", starter);
+				if (ask21mi.doorsystem.passenger.target == SLS)
+					ask21mi.doorsystem.passengerexport();
+			</function>
+		</throttle>
+	</mode>
+	<mode>
+		<name>Speedbrake / Brakes</name>
+		<throttle>
+			<function>/controls/flight/spoilers</function>
+			<function>-1</function>
+		</throttle>
+		<throttle>
+			<function>brake-cmd</function>
+		</throttle>
+	</mode>
+	<non-retractable-gear type="bool">true</non-retractable-gear>
+	<no-flaps type="bool">true</no-flaps>
+	<no-tailhook type="bool">true</no-tailhook>
+</aircraft>
+<aircraft>
+	<name>JT-5B</name> <!-- JT-5B Autogyro -->
+
+	<mode>
+		<name>Throttle / Composite (Rotorbrake | none | Starter)</name>
+		<throttle>
+			<function>throttle</function>
+		</throttle>
+		<throttle>
+			<function>
+				var starter = arg[0] &gt; 0.85;
+				var brake = arg[0] &gt; 0.2 or in_air() ? 0 : (0.2-arg[0])/0.2;
+				setprop(\"/controls/engines/engine/starter\", starter);
+				setprop(\"/controls/rotor/brake\", brake);
+			</function>
+		</throttle>
+	</mode>
+	<mode>Throttle / Brakes</mode>
+	<non-retractable-gear type="bool">true</non-retractable-gear>
+	<no-flaps type="bool">true</no-flaps>
+	<no-tailhook type="bool">true</no-tailhook>
+</aircraft>
+
+<!-- ======================================== HISTORICAL ======================================== -->
+
+<aircraft>
+	<name>14bis</name> <!-- 14bis Santos DUMONT -->
+	<name>21</name> <!-- Santos Dumont N 21 Demoiselle -->
+
+	<mode>
+		<name>Throttle / Starter</name>
+		<throttle>
+			<function>throttle</function>
+		</throttle>
+		<throttle>
+			<function>/controls/engines/engine/starter</function>
+			<function>bool</function>
+		</throttle>
+	</mode>
+	<non-retractable-gear type="bool">true</non-retractable-gear>
+	<no-tailhook type="bool">true</no-tailhook>
+	<no-flaps type="bool">true</no-flaps>
+</aircraft>
+
+<!-- ======================================== VTOL ======================================== -->
+
+<aircraft>
+	<name>harrier</name> <!-- British Aerospace Harrier -->
+
+	<mode>
+		<name>Throttle / Vector</name>
+		<throttle>
+			<function>throttle</function>
+		</throttle>
+		<throttle>
+			<function>mixture</function>
+		</throttle>
+	</mode>
+	<mode>Throttle / Flaps</mode>
+	<mode>
+		<name>Throttle / Vector &amp; Flaps</name>
+		<throttle>
+			<function>throttle</function>
+		</throttle>
+		<throttle>
+			<function>mixture</function>
+			<function>flaps</function>
+		</throttle>
+	</mode>
+	<mode>Throttle / Brakes</mode>
+	<brakes>
+		<up>brakes.speedbrake</up>
+	</brakes>
+	<swap-spoilers-and-speedbrake type="bool">true</swap-spoilers-and-speedbrake>
+	<no-tailhook type="bool">true</no-tailhook>
+</aircraft>
+<aircraft>
+	<name>f35</name> <!-- Lockheed Martin F-35B Lightning II -->
+
+	<mode>
+		<name>Throttle / Vector</name>
+		<throttle>
+			<function>throttle</function>
+		</throttle>
+		<throttle>
+			<function>f25.tiltAxis</function>
+			<min>0.8</min>
+		</throttle>
+	</mode>
+	<mode>Throttle / Brakes</mode>
+	<brakes>
+		<up>brakes.speedbrake</up>
+	</brakes>
+	<no-flaps type="bool">true</no-flaps>
+	<no-tailhook type="bool">true</no-tailhook>
+</aircraft>
+<aircraft>
+	<name>v22</name> <!-- Bell Boeing V-22 Osprey -->
+
+	<mode>
+		<name>Throttle / Engines</name>
+		<throttle>
+			<function>throttle</function>
+			<min>1</min>
+			<max>0</max>
+		</throttle>
+		<throttle>
+			<function>v22.tiltAxis</function>
+		</throttle>
+	</mode>
+		<name>Throttle / Engines</name>
+		<throttle>
+			<function>throttle</function>
+			<min>1</min>
+			<max>0</max>
+		</throttle>
+		<throttle>
+			<function>brake-cmd</function>
+		</throttle>
+	<no-flaps type="bool">true</no-flaps>
+	<no-tailhook type="bool">true</no-tailhook>
+</aircraft>
+
+<!-- ======================================== HELIS ======================================== -->
+
+<aircraft>
+	<name>H21-piasecki</name> <!-- Piasecki_H-21C_Helicopter -->
+	<name>CH47</name> <!-- CH-47 Chinook -->
+	<name>aircrane</name> <!-- AirCrane -->
+	<name>uh1</name> <!-- Bell UH 1 "Huey" -->
+	<name>uh60</name> <!-- Sikorsky UH60 BlackHawk -->
+	<name>R22</name> <!-- Robinson R22 Beta II -->
+	<name>Lynx-WG13</name> <!-- Lynx-WG13_Helicopter -->
+	<name>superfrelon</name> <!-- Super Frelon -->
+	<name>Alouette-III</name> <!-- Alouette_III_Helicopter -->
+	<name>raven</name> <!-- Robinson R44 Raven II / Clipper -->
+	<name>S51-sikorsky</name> <!-- Sikorsky-S51_Helicopter -->
+
+	<mode>Collective</mode>
+	<non-retractable-gear type="bool">true</non-retractable-gear>
+	<no-flaps type="bool">true</no-flaps>
+	<no-tailhook type="bool">true</no-tailhook>
+</aircraft>
+<aircraft>
+	<name>ka50</name> <!-- Kamov KA 50 Black Shark -->
+	<name>dauphin</name> <!-- Dauphin -->
+	<name>ch53e</name> <!-- Sikorsky CH-53E Super Stallion -->
+	<name>bell222x</name> <!-- Bell 222 X -->
+	<name>mi24</name> <!-- Mil Mi 24 Hind -->
+
+	<mode>Collective</mode>
+	<no-flaps type="bool">true</no-flaps>
+	<no-tailhook type="bool">true</no-tailhook>
+</aircraft>
+<aircraft>
+	<name>bo105</name> <!-- Eurocopter Bo105 -->
+
+	<mode>
+		<name>Throttle &amp; Power</name>
+		<throttle>
+			<function>throttle</function>
+			<min>1</min>
+			<max>0</max>
+		</throttle>
+		<throttle>
+			<function>
+				# Raw Access:
+				setprop(\"/controls/engines/engine[0]/power\", bo105.engines.engine[0].power=arg[0]);
+				setprop(\"/controls/engines/engine[1]/power\", bo105.engines.engine[1].power=arg[0]);
+			</function>
+		</throttle>
+	</mode>
+	<non-retractable-gear type="bool">true</non-retractable-gear>
+	<no-flaps type="bool">true</no-flaps>
+	<no-tailhook type="bool">true</no-tailhook>
+</aircraft>
+
+<!-- Default -->
+<aircraft>
+	<mode>Throttle / Pitch</mode>
+	<mode>Throttle / Mixture</mode>
+	<mode>Throttle / Flaps</mode>
+	<mode>Throttle L/R (2 Engines)</mode>
+	<mode>Throttle L/R (3 Engines)</mode>
+	<mode>Throttle L/R (4 Engines)</mode>
+	<mode>Collective</mode>
+	<mode>Throttle / Brakes</mode>
+	<brakes>
+		<up>brakes.speedbrake</up>
+		<up>brakes.spoilers</up>
+		<up>brakes.thrust_reverser</up>
+	</brakes>
 </aircraft>
 
 </PropertyList>
+

@@ -96,10 +96,10 @@ string.formatflaps = func(flaps) {
 #
 # Each mode is stored under root/throttle[n]/mode[m], where <n> is the <throttle number> that was passed
 # and <m> is the iterator to walk through all entries. As can be seen below, in the Property Tree graph,
-# each mode can contain <prop> nodes and associated <min> and <max> nodes. This prop can either be one of
-# several designated special values, the name of a member of the control_functions hash (e.g. "aileron"),
-# a Nasal function (detected by the presence of parenthesis), or the name of a property in the global
-# property tree.
+# each mode can contain <function> nodes and associated <min> and <max> nodes. This function can either
+# be one of several designated special values, the name of a member of the control_functions hash (e.g.
+# "aileron"), a Nasal script (detected by the presence of parenthesis), or the name of a property in
+# the global property tree.
 #
 # In addition, the name of the control_function can include an optional index in brackets to specify which
 # index to use for those controls, like throttle, that use props.setAll and have a property of the form
@@ -117,12 +117,12 @@ string.formatflaps = func(flaps) {
 #   throttle1(cmdarg().getNode("setting").getValue(), getlocalprop("throttle-mode"));
 #
 # Property Tree:
-# root/mode[m]/throttle[n]/prop[0] <required>
+# root/mode[m]/throttle[n]/function[0] <required>
 # root/mode[m]/throttle[n]/min[0]  <optional, value when input is at 0>
 # root/mode[m]/throttle[n]/max[0]  <optional, value when input is at 1>
-# root/mode[m]/throttle[n]/prop[1] <optional, for setting another property>
-# root/mode[m]/throttle[n]/min[1]  <optional, for prop[1]>
-# root/mode[m]/throttle[n]/max[1]  <optional, for prop[1]>
+# root/mode[m]/throttle[n]/function[1] <optional, for doing something in parallel>
+# root/mode[m]/throttle[n]/min[1]  <optional, for function[1]>
+# root/mode[m]/throttle[n]/max[1]  <optional, for function[1]>
 # [...]
 #
 var throttle = func(n, root) {
@@ -136,14 +136,14 @@ var throttle = func(n, root) {
 		var mode = mode.getChild("throttle", n, 1);
 		if (mode == nil) continue;
 		var funcs = [];
-		foreach (var prop; mode.getChildren("prop")) {
-			if (prop == nil or !prop.getValue()) continue;
+		foreach (var function; mode.getChildren("function")) {
+			if (function == nil or !function.getValue()) continue;
 			var start_cache=0; #if we have just started a cache, set this to 1.
 			append(funcs, (func { #hack to get a new closure to save
 			                      #values, we immediately evaluate it.
-				var min = mode.getNodeValue("min["~prop.getIndex()~"]", 0);
-				var max = mode.getNodeValue("max["~prop.getIndex()~"]", 0);
-				var prop = prop.getValue();
+				var min = mode.getNodeValue("min["~function.getIndex()~"]", 0);
+				var max = mode.getNodeValue("max["~function.getIndex()~"]", 0);
+				var function = function.getValue();
 				# If min is "bool" then the axis is now a boolean property,
 				# and max controls the "dead-band" around 0.5.
 				# If max is < 0 or min is "-bool", then the axis is reversed
@@ -155,23 +155,23 @@ var throttle = func(n, root) {
 					if (min == "-bool") reversed = 1;
 					return func(val) {
 						if (val < 0.5-max) {
-							setprop(prop, reversed);
+							setprop(function, reversed);
 						} elsif (val > 0.5+max) {
-							setprop(prop, 1-reversed);
+							setprop(function, 1-reversed);
 						}
 					}
 				} else {
 					# A big block of implicit return:
-					if (prop == "average2") func(val) {
+					if (function == "average2") func(val) {
 						setprop("/controls/engines/engine[1]/throttle",
 						   (getprop("/controls/engines/engine[0]/throttle") +
 							getprop("/controls/engines/engine[2]/throttle")) /2);
-					} elsif (prop == "average4") func(val) {
+					} elsif (function == "average4") func(val) {
 						setprop("/controls/engines/engine[2]/throttle",
 						   (getprop("/controls/engines/engine[0]/throttle") +
 							getprop("/controls/engines/engine[4]/throttle")) /2);
 					# Most of these retained for backwards compatability:
-					} elsif (prop == "controls.throttleAxis()") {
+					} elsif (function == "controls.throttleAxis()") {
 						if (min==nil) var min=0;
 						if (max==nil) var max=1;
 						return func(val) {
@@ -181,7 +181,7 @@ var throttle = func(n, root) {
 								if(e.selected.getValue())
 									setprop("/controls/engines/engine[" ~ e.index ~ "]/throttle", val2);
 						}
-					} elsif (prop == "controls.propellerAxis()") {
+					} elsif (function == "controls.propellerAxis()") {
 						if (min==nil) var min=0;
 						if (max==nil) var max=1;
 						return func(val) {
@@ -191,7 +191,7 @@ var throttle = func(n, root) {
 								if(e.selected.getValue())
 									setprop("/controls/engines/engine[" ~ e.index ~ "]/propeller-pitch", val2);
 						}
-					} elsif (prop == "controls.mixtureAxis()") {
+					} elsif (function == "controls.mixtureAxis()") {
 						if (min==nil) var min=0;
 						if (max==nil) var max=1;
 						return func(val) {
@@ -201,7 +201,7 @@ var throttle = func(n, root) {
 								if(e.selected.getValue())
 									setprop("/controls/engines/engine[" ~ e.index ~ "]/mixture", val2);
 						}
-					} elsif (prop == "controls.conditionAxis()") {
+					} elsif (function == "controls.conditionAxis()") {
 						if (min==nil) var min=0;
 						if (max==nil) var max=1;
 						return func(val) {
@@ -211,7 +211,7 @@ var throttle = func(n, root) {
 								if(e.selected.getValue())
 									setprop("/controls/engines/engine[" ~ e.index ~ "]/condition", val2);
 						}
-					} elsif (prop == "controls.flapsAxis()") {
+					} elsif (function == "controls.flapsAxis()") {
 						if (min==nil) var min=1; #switch the default values around
 						if (max==nil) var max=0;
 						var flaps = props.globals.getNode("/sim/flaps");
@@ -244,72 +244,72 @@ var throttle = func(n, root) {
 							    flaps <= last_setting-0.05*dt)
 								gui.popupTip("Flaps "~string.formatflaps(flaps));
 						}
-					} elsif (prop == "f35.tiltAxis()") return func(val) {
+					} elsif (function == "f35.tiltAxis()") return func(val) {
 						#min is the amount we go before the hatches start to close
 						#FIXME: add some form of interpolation/timing
 						var min = min ? min : 0.8;
 						val2 = val > min ? (val-1)*0.5/(1-min)+1 : val*0.5/min;
 						setprop("/controls/engines/engine/mixture", val2);
-					} elsif (prop == "v22.tiltAxis()") {
+					} elsif (function == "v22.tiltAxis()") {
 						if (min==nil) var min=0;
 						if (max==nil) var max=1;
 						return func(val) {
 							val2 = val*(max-min)+min;
 							v22.set_tilt(val2*100-10, 0);
 						}
-					} elsif (prop == "brake-cmd") {
+					} elsif (function == "brake-cmd") {
 						if (min==nil) var min=1;
 						if (max==nil) var max=0;
 						return func(val) setbrakes(val*(max-min)+min, 0, "axis");
-					} elsif (prop == "flaps") {
+					} elsif (function == "flaps") {
 						if (min==nil) var min=1;
 						if (max==nil) var max=0;
 						return func(val) control_functions.flaps.set("axis", val*(max-min)+min);
-					} elsif (find("(", prop)+1 and find(")", prop)+1) {
+					} elsif (find("(", function)+1 and find(")", function)+1) {
 						if (min==nil) var min=0;
 						if (max==nil) var max=1;
-						var code = compile(prop, "joystick code");
+						var code = compile(function, "joystick code");
 						return func(val) code(val*(max-min)+min, val, min, max); #call with these args...
-					} elsif (substr(prop, 0, 13) == "split-control") {
-						f = find(",", prop);
+					} elsif (substr(function, 0, 13) == "split-control") {
+						f = find(",", function);
 						# The 'number' member in the hash below specifies
-						# the total number of props which we reserve via
+						# the total number of functions which we reserve via
 						# the if statement below
 						if (f == -1) {
-							# by default we reserve this prop and two others (top and bottom)
+							# by default we reserve this function and two others (top and bottom)
 							var number = 3;
 						} else {
 							# otherwise we do "split-control:m,n"
-							if (find(":", prop) != 13) die();
-							var number = 1+substr(prop, 13, f-13)+substr(prop, f);
+							if (find(":", function) != 13) die();
+							var number = 1+substr(function, 13, f-13)+substr(function, f);
 						}
 						append(cache, {
-							prop: prop,
+							function: function,
 							min: min,
 							max: max,
-							number: number #we reserve this many prop, min, max combinations
+							number: number #we reserve this many function, min, max combinations
 						});
 						start_cache=1;
 						return func{}; #placeholder function
 					} else {
-						if (find("/", prop) == -1) {
-							if (prop[-1] == `]`) {
+						if (find("/", function) == -1) {
+							if (function[-1] == `]`) {
 								var indices = []; #list of all indices like in throttle[0,1,2,3,4]
 								var i = 0;
-								while (i < size(prop) and prop[i] != `[`) i+=1;
+								while (i < size(function) and function[i] != `[`) i+=1;
 								var start = i;
-								if (i >= size(prop)) die("bad index specifier, no opening bracket: "~prop);
+								if (i >= size(function)) die("bad index specifier, no opening bracket: "~function);
 
-								while (i < size(prop)) {
-									if (i != start and prop[i] != `,` and prop[i] != `-`) break; #didn't get a separator, so stop
-									var type = prop[i] == `-`;
+								while (i < size(function)) {
+									if (i != start and function[i] != `,` and function[i] != `-`) break; #didn't get a separator, so stop
+									var type = function[i] == `-`;
 									i+=1; #skip over the comma/hyphen/opening bracket
 									var last = i;
-									while (i < size(prop) and string.isdigit(prop[i]))
+									while (i < size(function) and string.isdigit(function[i]))
 										i += 1;
-									if (i == last) die("empty index in string: "~prop);
+									if (i == last) die("empty index in string: "~function);
 									#i is our first nondigit and i-last is the number of digits we have wandered through
-									if ((var current = num(substr(prop, i-1, i-last))) == nil) die(prop~" "~i~" "~last); #get the number
+									if ((var current = num(substr(function, i-1, i-last))) == nil) die(function~" "~i~" "~last); #get the number
 									if (!type)
 										append(indices, current);
 									else {
@@ -322,11 +322,11 @@ var throttle = func(n, root) {
 									}
 								}
 
-								if (prop[i] != `]`) die("bad index specifier: "~prop);
-								var prop = substr(prop, 0, start); #the rest of the prop
+								if (function[i] != `]`) die("bad index specifier: "~function);
+								var function = substr(function, 0, start); #the rest of the function
 							} else var indices = nil;
-							if (contains(control_functions, prop)) {
-								var m = control_functions[prop]; #save a couple hash lookups
+							if (contains(control_functions, function)) {
+								var m = control_functions[function]; #save a couple hash lookups
 								if (min==nil) if (m["min"] != nil) var min = m.min;
 									          else var min = 0;
 								if (max==nil) if (m["max"] != nil) var max = m.max;
@@ -334,34 +334,34 @@ var throttle = func(n, root) {
 								if (indices == nil or size(split("[,]/", m.prop)) != 2) {
 									if (m["clipto"] != nil) return func(val) {
 										# Draw a line from (0,min) to (1,max) and constrain it
-										m.set("axis", m.clipto(val*(max-min)+min)) or return;
+										m.set("axis", m.clipto(val*(max-min)+min)) == nil ? return : nil;
 									}
 									else return func(val) {
 										# Draw a line from (0,min) to (1,max)
-										m.set("axis", val*(max-min)+min) or return;
+										m.set("axis", val*(max-min)+min) == nil ? return : nil;
 									}
 								} else {
-									var prop = split("[,]", m.prop);
+									var function = split("[,]", m.prop);
 									if (size(indices) == 1) {
 										var index = indices[0];
 										if (m["clipto"] != nil) return func(val) {
 											# Draw a line from (0,min) to (1,max) and constrain it
-											m.set("axis", m.clipto(val*(max-min)+min), index) or return;
+											m.set("axis", m.clipto(val*(max-min)+min), index) == nil ? return : nil;
 										}
 										else return func(val) {
 											# Draw a line from (0,min) to (1,max)
-											m.set("axis", val*(max-min)+min, index) or return;
+											m.set("axis", val*(max-min)+min, index) == nil ? return : nil;
 										}
 									} else {
 										if (m["clipto"] != nil) return func(val) {
 											foreach (var index; indices) {
 												# Draw a line from (0,min) to (1,max) and constrain it
-												m.set("axis", m.clipto(val*(max-min)+min), index) or return;
+												m.set("axis", m.clipto(val*(max-min)+min), index) == nil ? return : nil;
 											}
 										} else return func(val) {
 											foreach (var index; indices) {
 												# Draw a line from (0,min) to (1,max)
-												m.set("axis", val*(max-min)+min, index) or return;
+												m.set("axis", val*(max-min)+min, index) == nil ? return : nil;
 											}
 										}
 									}
@@ -372,7 +372,7 @@ var throttle = func(n, root) {
 						if (max==nil) var max=1;
 						return func(val) {
 							# Draw a line from (0,min) to (1,max)
-							setprop(prop, val*(max-min)+min);
+							setprop(function, val*(max-min)+min);
 						}
 					}
 				}
@@ -381,13 +381,13 @@ var throttle = func(n, root) {
 			if (size(cache) and !start_cache) {
 				if (size(cache) < cache[0].number) {
 					append(cache, {
-						min: mode.getNodeValue("min["~prop.getIndex()~"]", 0),
-						max: mode.getNodeValue("max["~prop.getIndex()~"]", 0),
-						prop: prop.getValue()
+						min: mode.getNodeValue("min["~function.getIndex()~"]", 0),
+						max: mode.getNodeValue("max["~function.getIndex()~"]", 0),
+						function: function.getValue()
 					});
 				}
 				# TODO: extend to be generic "split-control:m,n"
-				if (size(cache) == 3 and cache[0].prop == "split-control") {
+				if (size(cache) == 3 and cache[0].function == "split-control") {
 					if (cache[0].min == nil) cache[0].min = 0.5;
 					if (cache[0].max == nil) cache[0].max = 0.05;
 					if (cache[1].min == nil) cache[1].min = 1;
@@ -440,40 +440,40 @@ var throttle = func(n, root) {
 # either a vector with elements either singly or triply:
 #
 # Singly:
-# prop
+# function
 #
 # Triply:
-# prop, min, max
+# function, min, max
 #
 # Add together the elements to get the list:
 # ["controls.throttleAxis()", "controls/engines/engine[0]/starter", "bool", nil]
-#  ^--- single element ---^   ^----- three elements (prop, min, and max) -----^
-#         //prop[0]                     //prop[1]                  //min[1] //max[1]
+#  ^--- single element ---^   ^--- three elements (function, min, and max) ---^
+#         //function[0]               //function[1]                //min[1] //max[1]
 #
-# Or it can be a hash, with a props vector that is the main iterator and contains
+# Or it can be a hash, with a functions vector that is the main iterator and contains
 # either a scalar (in which case the min and max are pulled from the corresponding
-# index in the minimums and maximums arrays) or a hash itself, which contains prop,
+# index in the minimums and maximums arrays) or a hash itself, which contains function,
 # minimum, and maximum entries:
 #
-# { props: [ "brake-cmd", "/my/brake/property" ],
+# { functions: [ "brake-cmd", "/my/brake/property" ],
 #   minimums: [1, 1],
 #   maximums: [0, 0]
 # };
 #
-# { props: [{ prop: "brake-cmd", 
+# { functions: [{ function: "brake-cmd", 
 #             minimum: 1, maximum: 0
-#           { prop: "/my/brake/property",
+#           { function: "/my/brake/property",
 #             minimum: 1, maximum: 0 } ]
 # };
 #
-# { props: [ "brake-cmd", 
-#           { prop: "/my/brake/property",
+# { functions: [ "brake-cmd", 
+#           { function: "/my/brake/functionerty",
 #             minimum: 1, maximum: 0 } ],
 #   minimums: [1], #or [1, nil]
 #   maximums: [0]  #or [0, nil]
 # };
 #
-# Then add another vector/hash for the next throttle. If there's only one prop and
+# Then add another vector/hash for the next throttle. If there's only one function and
 # no min or max for a particular throttle, then the brackets can be omitted, making
 # it a scalar. Also, if a min or max equals nil, then it isn't set.
 #
@@ -501,55 +501,55 @@ var addmode = func(name, list...) {
 	_mode.getNode("name", 1).setValue(name);
 	forindex (var throttle; list) {
 		var _throttle = _mode.getChild("throttle", throttle, 1);
-		var i = 0; var prop = -1;
+		var i = 0; var function = -1;
 		if (typeof(list[throttle]) == 'vector') {
 			while (i < size(list[throttle])) {
 				var item = list[throttle][i];
 				var is_path = !(num(item) != nil or item == "bool" or item == "-bool");
 				if (is_path) {
-					prop += 1;
-					_throttle.getChild("prop", prop, 1).setValue(item);
+					function += 1;
+					_throttle.getChild("function", function, 1).setValue(item);
 					i += 1;
 				} else {
 					#try and allow cases where -1 is a real minimum followed by a maximum
 					#(determined by whether the next one is a number)
 					if (item == -1 and
 					    (i >= size(list[throttle])-1 or num(list[throttle][i+1]) == nil)) {
-						_throttle.getChild("min", prop, 1).setValue(1);
-						_throttle.getChild("max", prop, 1).setValue(0);
+						_throttle.getChild("min", function, 1).setValue(1);
+						_throttle.getChild("max", function, 1).setValue(0);
 					} else {
 						if (item != nil)
-							_throttle.getChild("min", prop, 1).setValue(item);
+							_throttle.getChild("min", function, 1).setValue(item);
 						item = (i+=1) < size(list[throttle]) ? list[throttle][i] : nil;
 						if (item != nil)
-							_throttle.getChild("max", prop, 1).setValue(item);
+							_throttle.getChild("max", function, 1).setValue(item);
 					}
 					i += 1;
 				}
 			}
 		} elsif (typeof(list[throttle]) == 'scalar') {
-			_throttle.getChild("prop", 0, 1).setValue(list[throttle]);
+			_throttle.getChild("function", 0, 1).setValue(list[throttle]);
 		} elsif (typeof(list[throttle]) == 'hash') {
-			if (!contains(list[throttle], "props")) die("invalid/unrecognized argument to addmode()");
+			if (!contains(list[throttle], "functions")) die("invalid/unrecognized argument to addmode()");
 			if (!contains(list[throttle], "minimums")) list[throttle].minimums = [];
 			if (!contains(list[throttle], "maximums")) list[throttle].maximums = [];
-			setsize(list[throttle].minimums, size(list[throttle].props));
-			setsize(list[throttle].maximums, size(list[throttle].props));
-			forindex (var prop; list[throttle].props) {
-				var item = list[throttle].props[prop];
-				if (item==nil or !size(item)) continue; #do not increment our prop count (the i variable)
+			setsize(list[throttle].minimums, size(list[throttle].functions));
+			setsize(list[throttle].maximums, size(list[throttle].functions));
+			forindex (var function; list[throttle].functions) {
+				var item = list[throttle].functions[function];
+				if (item==nil or !size(item)) continue; #do not increment our function count (the i variable)
 				if (typeof(item) == 'hash') {
-					_throttle.getNode("prop", i, 1).setValue(item.prop);
+					_throttle.getNode("function", i, 1).setValue(item.function);
 					if (item["minimum"] != nil)
 						_throttle.getNode("min", i, 1).setValue(item.minimum);
 					if (item["maximum"] != nil)
 						_throttle.getNode("max", i, 1).setValue(item.maximum);
 				} else {
-					setlocalprop(_mode ~ _throttle ~ "/prop[" ~ i ~ "]", item);
-					if (list[throttle].minimums[prop] != nil)
-						_throttle.getNode("min", i, 1).setValue(list[throttle].minimums[prop]);
-					if (list[throttle].maximums[prop] != nil)
-						_throttle.getNode("max", i, 1).setValue(list[throttle].maximums[prop]);
+					setlocalfunction(_mode ~ _throttle ~ "/function[" ~ i ~ "]", item);
+					if (list[throttle].minimums[function] != nil)
+						_throttle.getNode("min", i, 1).setValue(list[throttle].minimums[function]);
+					if (list[throttle].maximums[function] != nil)
+						_throttle.getNode("max", i, 1).setValue(list[throttle].maximums[function]);
 				}
 				i += 1;
 			}
@@ -779,6 +779,9 @@ var control_functions = {
 	tailhook:         "control,/controls/gear/tailhook",  #'control': the tailhookcontrol function
 	spoilers:         ",button", #'button':  the brakes.spoilers function
 	speedbrake:       ",button", #'button':  the brakes.speedbrake function
+	starter:          "button,",
+	battery_switch:   "button,/controls/electric/battery-switch",
+	tailwheel_lock:   "button,/controls/gear/tailwheel-lock",
 };
 
 ##
@@ -788,21 +791,8 @@ var control_functions = {
 #    allow for flexibility in names, and
 #  * An underscore by itself gets converted to a hyphen
 #
-string.Nasal_to_XML = func(name) {
-	var prop = "";
-	var name = split("_", name);
-	foreach (var part; name) {
-		if (part == "") #if this is a double underscore
-			prop ~= "_";
-		elsif (prop == "")
-			prop = part;
-		elsif (prop[-1] == `_`)
-			prop ~= part;
-		else
-			prop ~= "-"~part;
-	}
-	return prop;
-};
+string.Nasal_to_XML = func(name) string.replace(string.replace(name, "_", "-"), "--", "_");
+string.XML_to_Nasal = func(name) string.replace(string.replace(name, "_", "__"), "-", "_");
 
 # fully initialize the entries...
 foreach (var item; keys(control_functions)) {
@@ -864,6 +854,11 @@ control_functions.use_condition = 0;
 if (getprop("/fdm/jsbsim/systems/hook/tailhook-cmd-norm") != nil) {
 	control_functions.tailhook.prop = "/fdm/jsbsim/systems/hook/tailhook-cmd-norm";
 }
+if (name == "c172p") {
+	controls.startEngine = func(s=1) {
+		setprop("/controls/switches/starter", s);
+	}
+}
 
 ##
 # Get the controls used for a mode by the mode index
@@ -874,7 +869,7 @@ var getcontrolfuncs = func(idx=nil) {
 	if (modeN == nil) return []; else
 	var result = [];
 	foreach (var thrN; modeN.getChildren("throttle"))
-		foreach (var propN; thrN.getChildren("prop"))
+		foreach (var propN; thrN.getChildren("function"))
 			if (contains(control_functions, split("[", propN.getValue())[0]))
 				append(result, control_functions[split("[", propN.getValue())[0]]);
 	return result;
@@ -979,7 +974,7 @@ var tailhookcontrol = func(step, popupTip="") {
 		var tailhook = control_functions.tailhook.get("control");
 		if (tailhook == nil) return popupTip; #must not have control of it
 		if (step > 0) {
-			if ((flaps == 1 or flaps == nil) and tailhook == 0) {
+			if ((flaps == nil or flaps > 0.8) and tailhook == 0) {
 				control_functions.tailhook.set("control", 1);
 				if (popupTip == "") popupTip = "Tailhook DOWN";
 				else   popupTip = popupTip ~ "; Tailhook DOWN";
@@ -1001,9 +996,9 @@ var tailhookcontrol = func(step, popupTip="") {
 # which it returns after adding the necessary info
 #
 var gearcontrol = func(step, popupTip="") {
-	control_functions.retractable_gear.isControl("control") or (return popupTip);
 	if (step) {
-		gear = getprop("/controls/gear/gear-down");
+		var gear = control_functions.retractable_gear.get("control");
+		if (gear == nil) return popupTip;
 		if (step < 0) {
 			if (gear != 0 and !getprop("/gear/gear[0]/wow") and !getprop("/gear/gear[1]/wow") and !getprop("/gear/gear[2]/wow")) {
 				globals.controls.gearDown(-1);
@@ -1023,22 +1018,27 @@ var gearcontrol = func(step, popupTip="") {
 };
 
 # All the props that fall under 'TWS'
-# Order: [prop, pre, [on, off]]
+# Order: [prop, pre, [on, off], wow]
 # Usage:
-#   popupTip ~= pre ~ [on, off][getprop(prop)];
+#   if (getprop(prop) != nil and in_air() != wow) popupTip ~= pre ~ [on, off][getprop(prop)];
 var TWS_list = [
-	["/fdm/jsbsim/fcs/fbw-override", "FBW system ", ["ACTIVE", "OVERRIDEN"]],
-	["/fdm/jsbsim/systems/TWS/engaged", "TWS ", ["DISENGAGED", "ENGAGED"]],
-	["/fdm/jsbsim/systems/NWS/engaged", "NWS ", ["DISENGAGED", "ENGAGED"]],
+	["/fdm/jsbsim/fcs/fbw-override", "FBW system ", ["ACTIVE", "OVERRIDEN"], 0],
+	["/fdm/jsbsim/systems/TWS/engaged", "TWS ", ["DISENGAGED", "ENGAGED"], 1],
+	["/fdm/jsbsim/systems/NWS/engaged", "NWS ", ["DISENGAGED", "ENGAGED"], 1],
+	["!/controls/gear/tailwheel-lock", "Tailwheel ", ["unlocked", "locked"], 1],
 ];
 
 # Either toggle the group (n == nil) or set the value (n != nil)
 # Tail-wheel steering, Nose-wheel steering, and FBW override are handled individually
 var TWS = func(n=nil, popupTip="") {
+	var in_air = in_air();
 	if (n == nil) {
 		foreach (var item; TWS_list) {
-			var (prop, name, switch) = item;
-			if (getprop(prop) != nil) {
+			var (prop, name, switch, wow) = item;
+			if (prop[0] == `!`) {
+				prop = substr(prop, 1);
+			}
+			if (getprop(prop) != nil and in_air != wow) {
 				setprop(prop, !getprop(prop));
 				popupTip ~= name ~ switch[getprop(prop)];
 			}
@@ -1046,10 +1046,14 @@ var TWS = func(n=nil, popupTip="") {
 	} else {
 		var has_one = 0;
 		foreach (var item; TWS_list) {
-			var (prop, name, switch) = item;
-			if (getprop(prop) != nil) {
+			var (prop, name, switch, wow) = item;
+			if (prop[0] == `!`) {
+				prop = substr(prop, 1);
+				var reverse = 1;
+			} else var reverse = 0;
+			if (getprop(prop) != nil and in_air != wow) {
 				var has_one = 1;
-				setprop(prop, n);
+				setprop(prop, reverse ? !n : n);
 				popupTip ~= name ~ switch[getprop(prop)];
 			}
 		}

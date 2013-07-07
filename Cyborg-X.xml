@@ -89,6 +89,7 @@ button 2/3:                   #               Move to "clean" config     Reset s
 <nasal>
 	<script><![CDATA[
 		printlog("debug", "Starting load of Cyborg-X.xml...");
+		if (defined("mode_editor")) mode_editor.del(); #clean up from an old load...
 		var Joystick = {
 			parents: [props.Node],
 			_g: props._getParent(_cmdarg(), []),
@@ -96,6 +97,11 @@ button 2/3:                   #               Move to "clean" config     Reset s
 			Root: getprop("/sim/fg-root") ~ "/Input/Joysticks/Saitek/Cyborg-X",
 		};
 		var namespace = cmdarg().getNode("module").getValue();
+
+		# Some global variables for aircraft detection
+		var path = getprop("/sim/model/path");
+		var model = split("/", split(".", path)[0])[-1]; #get the actual filename without folders or the extension
+		var name = substr(model, -6, 6) == "-model" ? substr(model, 0, size(model)-6) : model; #this removes a common suffix
 
 		# A small utility for .new() functions,
 		# copies any variables out of the parent enclosure
@@ -118,7 +124,8 @@ button 2/3:                   #               Move to "clean" config     Reset s
 		Joystick.initNode("brake-cmd", 0, "DOUBLE");
 		Joystick.initNode("throttle-mode", 0, "INT");
 		ekey = props.globals.getNode("/input/keyboard/key["~`e`~"]"); #`e` is a number!
-		var trigger = var trigger1 = 0; #for releasing of the trigger when we started it
+		var trigger = var trigger1 = var starter = 0; #for releasing of the control when we started it
+		var mags_last_move = 0; #for stepping magnetos and engaging starter
 
 		func {
 		foreach (var b; Joystick.getChildren("button")) {
@@ -145,8 +152,7 @@ button 2/3:                   #               Move to "clean" config     Reset s
 
 		io.load_nasal(Joystick.Root ~ "/functions.nas", namespace);
 		io.load_nasal(Joystick.Root ~ "/hardware.nas", namespace);
-
-		var config = gui.Dialog.new(Joystick.path ~ "/dialog","Input/Joysticks/Saitek/Cyborg-X/Dialog-Cyborg");
+		io.load_nasal(Joystick.Root ~ "/gui.nas", namespace);
 
 		# Custom values:
 		var reverseHatPitch = -1; #Change this if the hat direction is backwards, also can act as a speed control (e.g. -0.5)
@@ -155,12 +161,11 @@ button 2/3:                   #               Move to "clean" config     Reset s
 		var allow_popupTips = 1; #If we want popupTips to be displayed
 
 		# Axis bindings:
-		var aileron   = axis.new(EWMA:0.05, power:2,   reverse:0, dead_band:0.002,       overshoot:0.003);
-		var elevator  = axis.new(EWMA:0.10, power:2,   reverse:1, dead_band:0.002,       overshoot:0.003);
-		#var rudder    = axis.new(EWMA:0.08, power:1.2, reverse:0, dead_band:0.007,       overshoot:0.003);
-		var rudder = axis.new(Joystick.getNode("axis[2]"));
-		var throttle1 = axis.new(EWMA:0.24, power:1,   reverse:0, outer_dead_band:0.007, overshoot:0.003);
-		var throttle2 = axis.new(EWMA:0.24, power:1,   reverse:0, outer_dead_band:0.007, overshoot:0.003);
+		var aileron   = Axis.new(Joystick.getNode("axis[0]/settings"));
+		var elevator  = Axis.new(Joystick.getNode("axis[1]/settings"));
+		var rudder    = Axis.new(Joystick.getNode("axis[2]/settings"));
+		var throttle1 = Axis.new(Joystick.getNode("axis[3]/settings"));
+		var throttle2 = Axis.new(Joystick.getNode("axis[4]/settings"));
 
 		aileron.setControlName("aileron");
 		elevator.setControlName("elevator");
@@ -228,6 +233,12 @@ button 2/3:                   #               Move to "clean" config     Reset s
 		<unix>0</unix>
 		<windows>0</windows>
 	</number>
+	<settings>
+		<EWMA type="double">0.05</EWMA>
+		<power type="double">2</power>
+		<dead-band type="double">0.002</dead-band>
+		<overshoot type="double">0.003</overshoot>
+	</settings>
 	<desc>Aileron</desc>
 	<binding>
 		<command>nasal</command>
@@ -241,6 +252,13 @@ button 2/3:                   #               Move to "clean" config     Reset s
 		<unix>1</unix>
 		<windows>1</windows>
 	</number>
+	<settings>
+		<EWMA type="double">0.10</EWMA>
+		<power type="double">2</power>
+		<reverse type="bool">true</reverse>
+		<dead-band type="double">0.002</dead-band>
+		<overshoot type="double">0.003</overshoot>
+	</settings>
 	<desc>Elevator</desc>
 	<binding>
 		<command>nasal</command>
@@ -254,11 +272,13 @@ button 2/3:                   #               Move to "clean" config     Reset s
 		<unix>3</unix>
 		<windows>3</windows>
 	</number>
-	<EWMA type="double">0.08</EWMA>
-	<power type="double">1.2</power>
-	<expo type="double">1.4</expo>
-	<dead-band type="double">0.004</dead-band>
-	<overshoot type="double">0.003</overshoot>
+	<settings>
+		<EWMA type="double">0.08</EWMA>
+		<power type="double">1.2</power>
+		<expo type="double">1.4</expo>
+		<dead-band type="double">0.004</dead-band>
+		<overshoot type="double">0.003</overshoot>
+	</settings>
 	<desc>Rudder</desc>
 	<binding>
 		<command>nasal</command>
@@ -272,6 +292,12 @@ button 2/3:                   #               Move to "clean" config     Reset s
 		<unix>2</unix>
 		<windows>2</windows>
 	</number>
+	<settings>
+		<EWMA type="double">0.24</EWMA>
+		<power type="double">2</power>
+		<outer-dead-band type="double">0.007</outer-dead-band>
+		<overshoot type="double">0.003</overshoot>
+	</settings>
 	<desc>Throttle 1</desc>
 	<binding>
 		<command>nasal</command>
@@ -285,6 +311,12 @@ button 2/3:                   #               Move to "clean" config     Reset s
 		<unix>4</unix>
 		<windows>4</windows>
 	</number>
+	<settings>
+		<EWMA type="double">0.24</EWMA>
+		<power type="double">2</power>
+		<outer-dead-band type="double">0.007</outer-dead-band>
+		<overshoot type="double">0.003</overshoot>
+	</settings>
 	<desc>Throttle 2</desc>
 	<binding>
 		<command>nasal</command>
@@ -313,10 +345,19 @@ button 2/3:                   #               Move to "clean" config     Reset s
 				elsif (mod == 2)
 					controls.adjMixture(reverseHatDir*-2);
 				elsif (mod == 4)
-					{ controls.adjCondition(reverseHatDir*-6);
-					  controls.stepMagnetos(-1) }
+				{
+					controls.adjCondition(reverseHatDir*-2);
+					if (!(systime()-0.75 &gt; mags_last_move)) return;
+					mags_last_move = systime();
+					if (getprop("/controls/engines/engine/magnetos") == 0)
+						control_functions.battery_switch.set("button", 0);
+					else controls.stepMagnetos(-1);
+				}
 			</script>
 		</binding>
+		<mod-up><binding>
+			<command>nasal</command><script>mags_last_move = 0</script>
+		</binding></mod-up>
 	</low>
 	<high>
 		<repeatable>true</repeatable>
@@ -330,10 +371,21 @@ button 2/3:                   #               Move to "clean" config     Reset s
 				elsif (mod == 2)
 					controls.adjMixture(reverseHatDir*2);
 				elsif (mod == 4)
-					{ controls.adjCondition(reverseHatDir*6);
-					  controls.stepMagnetos(1) }
+				{
+					controls.adjCondition(reverseHatDir*2);
+					if (!(systime()-0.75 &gt; mags_last_move)) return;
+					mags_last_move = systime();
+					if (control_functions.battery_switch.get("button") == 0)
+						control_functions.battery_switch.set("button", 1);
+					elsif (getprop("/controls/engines/engine/magnetos") &lt; 3)
+						controls.stepMagnetos(1);
+					else control_functions.starter.set("button", starter = 1);
+				}
 			</script>
 		</binding>
+		<mod-up><binding>
+			<command>nasal</command><script>mags_last_move = 0; starter and control_functions.starter.set("button", starter = 0)</script>
+		</binding></mod-up>
 	</high>
 </axis>
 
@@ -427,8 +479,8 @@ button 2/3:                   #               Move to "clean" config     Reset s
 				elsif (mod == 6)
 					brakes.up[2]();
 				setbrakes(0, 0, "trigger");
-				if (trigger)  { controls.trigger(0);  trigger  = 0 }
-				if (trigger1) { controls.trigger1(0); trigger1 = 0 }
+				if (trigger)  controls.trigger (trigger  = 0);
+				if (trigger1) controls.trigger1(trigger1 = 0);
 			</script>
 		</binding>
 	</mod-up>
@@ -498,7 +550,7 @@ button 2/3:                   #               Move to "clean" config     Reset s
 		</mod-up>
 	</hold-down>
 	<double-click>
-		<time type="double">0.3</time>
+		<time type="double">0.4</time>
 		<binding>
 			<command>nasal</command>
 			<script><![CDATA[
@@ -554,7 +606,7 @@ button 2/3:                   #               Move to "clean" config     Reset s
 		</binding>
 	</hold-down>
 	<double-click>
-		<time type="double">0.3</time>
+		<time type="double">0.4</time>
 		<binding>
 			<command>nasal</command>
 			<script><![CDATA[
@@ -744,9 +796,16 @@ button 2/3:                   #               Move to "clean" config     Reset s
 	<binding>
 		<command>nasal</command>
 		<script><![CDATA[
+			var mode = getlocalprop("throttle-mode");
+			func {
 			foreach (var fn; getcontrolfuncs())
 				fn.releaseControl("axis");
-			var mode = getlocalprop("throttle-mode");
+			if ((var switch_from = Joystick.getChild("mode", mode).getNode("switch-from")) != nil) {
+				if (switch_from.getNode("script") != nil)
+					call(compile(switch_from.getNode("script").getValue()));
+				if (switch_from.getNode("binding") != nil)
+					props.runBinding(switch_from.getNode("binding"));
+			}
 			var modes = Joystick.getChildren("mode");
 			if (size(modes)) {
 				# Shuffle around to the next mode ;-)
@@ -762,13 +821,20 @@ button 2/3:                   #               Move to "clean" config     Reset s
 					mode -= 1;
 				if (mode == size(modes)) mode = 0; #wrap around
 				elsif (mode < 0) mode = size(modes)-1;
-				mode = modes[mode].getIndex();
+				var mode = modes[mode].getIndex();
 			} else print("No modes for the Cyborg-X!");
 			setlocalprop("throttle-mode", mode);
 			foreach (var fn; getcontrolfuncs())
 				fn.takeControl("axis");
+			if ((var switch_to = Joystick.getChild("mode", mode).getNode("switch-to")) != nil) {
+				if (switch_to.getNode("script") != nil)
+					call(compile(switch_to.getNode("script").getValue()));
+				if (switch_to.getNode("binding") != nil)
+					props.runBinding(switch_to.getNode("binding"));
+			}
 			var name = getlocalprop("mode[" ~ mode ~ "]/name");
 			gui.popupTip(name);
+			}();
 		]]></script>
 	</binding>
 </button>
@@ -811,7 +877,10 @@ button 2/3:                   #               Move to "clean" config     Reset s
 	<repeatable type="bool">false</repeatable>
 	<binding>
 		<command>nasal</command>
-		<script>config.toggle();</script>
+		<script>
+			#config_dlg.toggle();
+			toggle_window();
+		</script>
 	</binding>
 </button>
 

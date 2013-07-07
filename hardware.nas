@@ -7,7 +7,7 @@
 # Depending on if hold down and/or double click is enabled for a button, they will run
 # different functions. Both times can be functions, e.g.:
 #
-#    button.new(hold_down_time:func if (mod == 0) 0.2 else 0);
+#    Button.new(hold_down_time:func if (mod == 0) 0.2 else 0);
 #
 # The above example checks to see if mod equals 1, if it does then hold_down_time is 0.2 and
 # hold down is enabled, if it isn't then hold_down_time is disabled (since it's returning false).
@@ -52,12 +52,12 @@
 if (0) var trace = print;
 else   var trace = func() {};
 
-var button = {
+var Button = {
 	hold_down_flag:0, state:0, events:0,
 	new:func(node=1,
 	         hold_down_time=nil,     hold_down_function=nil,    regular_function=nil,      hold_down_release=nil,
 	         double_click_time=nil,  double_click_function=nil, regular_down_function=nil, double_click_type=1) {
-		m = {parents:[button]};
+		m = {parents:[me]};
 		m.setHoldDownTime(hold_down_time);
 		m.setHoldDownFunction(hold_down_function);
 		m.setRegularFunction(regular_function);
@@ -129,7 +129,7 @@ var button = {
 
 	setNode:func(n) {
 		if (typeof(n) == 'scalar') n = props.globals.getNode(n);
-		if (!isa(n, props.Node)) die("invalid argument to button.setNode of type "~typeof(n));
+		if (!isa(n, props.Node)) die("invalid argument to Button.setNode of type "~typeof(n));
 		if ((var a=n.getNode("double-click")) != nil) {
 			if (a.getNode("time") != nil)
 				me.double_click_time = (func {
@@ -247,12 +247,12 @@ var button = {
 # Specific button bindings
 # #################################################################################
 
-var button2 = button.new(Joystick.getChild("button", 1));
-var button3 = button.new(Joystick.getChild("button", 2));
+var button2 = Button.new(Joystick.getChild("button", 1));
+var button3 = Button.new(Joystick.getChild("button", 2));
 
 # For continuous flaps, will do more advanced things with them later
-button8 = button.new(regular_down_function:func{controls.flapsDown(-1)}, regular_function:func{controls.flapsDown(0)});
-button9 = button.new(regular_down_function:func{controls.flapsDown(1)}, regular_function:func{controls.flapsDown(0)});
+button8 = Button.new(regular_down_function:func{controls.flapsDown(-1)}, regular_function:func{controls.flapsDown(0)});
+button9 = Button.new(regular_down_function:func{controls.flapsDown(1)}, regular_function:func{controls.flapsDown(0)});
 
 ##
 # A class to manage the release of a scroll wheel function
@@ -301,7 +301,7 @@ var scroll = {
 # are implemented. For throttles, input the standard (-1,1) range
 # to have trim work properly, instead of the range (0,1).
 #
-var axis = {
+var Axis = {
 	new:func(node=nil, #master uber-node for settings
 	         EWMA=0, power=1, reverse=0, offset=0, #axis movement properties
 	         dead_band=0, overshoot=0, hysteresis=0, trim=0,
@@ -310,38 +310,33 @@ var axis = {
 		var lowpass = aircraft.lowpass.new(EWMA);
 		var jammed = var jammed_hash = nil;
 		var axisvalue = var aim = 0;
-		var listeners = []; #a bucket to free out listeners in del()
-		var functions = [nil, nil]; #two or more functions to execute
+		var functions = [nil, nil]; #some functions to execute
+		var time_of_last_move = systime(); #used to increase hysteresis with time
 		var m = _gen_new("EWMA"); #we do not want "EWMA" as a member, so put it as an argument
 		# The property can override any of these settings:
-		if (node != nil) {
+		if (node != nil) setlistener(node, func {
 			var node_name = func(sym) return string.replace(sym, "_", "-");
-			var namespace = caller(0)[0];
+			var namespace = closure(caller(0)[1]);
 			foreach (var sym; keys(namespace)) {
-				if (node.getNode(node_name(sym)) != nil)
-					(func{
-						# Save our static variables:
-						var n = node.getNode(node_name(sym));
-						var setter =
-							sym == "outer_dead_band"? m.setOuterDeadBand:
-							sym == "hysteresis"? m.setHysteresis:
-							sym == "outer_trim"? m.setOuterTrim:
-							sym == "overshoot"? m.setOvershoot:
-							sym == "dead_band"? m.setDeadBand:
-							sym == "reverse"? m.setReverse:
-							sym == "offset"? m.setOffset:
-							sym == "factor"? m.setFactor:
-							sym == "power"? m.setPower:
-							sym == "trim"? m.setTrim:
-							sym == "EWMA"? m.setEWMA:
-							sym == "exp"? m.setExp:
-							             return; # or continue
-						append(m.listeners, setlistener(n, func {
-							call(setter, [n.getValue()], m); #method call: m.[setter](n.getValue())
-						}, 1, 1));
-					})();
+				if (node.getNode(node_name(sym)) != nil) {
+					var val = node.getNode(node_name(sym)).getValue();
+					if (val == nil) continue;
+					sym == "outer_dead_band"? m.setOuterDeadBand(val):
+					sym == "hysteresis"? m.setHysteresis(val):
+					sym == "outer_trim"? m.setOuterTrim(val):
+					sym == "overshoot"? m.setOvershoot(val):
+					sym == "dead_band"? m.setDeadBand(val):
+					sym == "reverse"? m.setReverse(val):
+					sym == "offset"? m.setOffset(val):
+					sym == "factor"? m.setFactor(val):
+					sym == "power"? m.setPower(val):
+					sym == "trim"? m.setTrim(val):
+					sym == "EWMA"? m.setEWMA(val):
+					sym == "exp"? m.setExp(val):
+						              continue;
+				}
 			}
-		}
+		}, 1, 2);
 		m.set(0); m.update(); #finish initialization and "tie" it to the property(ies)
 		return m;
 	},
@@ -355,10 +350,11 @@ var axis = {
 
 	# Un-optimized (aka legible) form:
 	filter:func(value) {
+		var old = me.get();
 		var value = me._transform(value);
 		me.axisvalue = value;
 		if (me.lowpass.coeff) {
-			me.aim = value*(1+me.overshoot); #FIXME: this definitely needs a better implementation of overshoot
+			me.aim = value+math.sgn(value-old)*me.overshoot; #FIXME: this definitely needs a better implementation of overshoot
 			return me.lowpass.filter(me.aim);
 		} else {
 			me.aim = value;
@@ -367,8 +363,9 @@ var axis = {
 	},
 	# Optimized form:
 	filter:func(value) {
+		var old = me.get();
 		if (me.lowpass.coeff)
-			return me.lowpass.filter(me.aim = (me.axisvalue = me._transform(value))*(1+me.overshoot));
+			return me.lowpass.filter(me.aim = (me.axisvalue = me._transform(value))+math.sgn(me.axisvalue-old)*(me.overshoot));
 		else
 			return me.lowpass.set(me.aim = me.axisvalue = me._transform(value));
 	},
@@ -389,9 +386,10 @@ var axis = {
 	push:func(value=nil) {
 		if (value == nil) value = cmdarg().getNode("setting").getValue();
 		#var value = me._transform(value); #transformation is handled in me.filter()
-		if (value >= me.get()-me.hysteresis and
-		    value <= me.get()+me.hysteresis) #if it isn't any different
+		if (value >= me.get()-me._hysteresis() and
+		    value <= me.get()+me._hysteresis()) #if it isn't any different
 			return nil;
+		me.time_of_last_move = systime();
 		return me.runfunction(me.filter(value)); #returns the value set, after transformations
 	},
 
@@ -410,10 +408,9 @@ var axis = {
 			   "aim: %4f, axis: %4f",
 			           previous, me.value, me.aim, me.axisvalue));
 
-		if (previous < value-me.hysteresis
-		    or previous > value+me.hysteresis) {
-			me.runfunction(value);
-		}
+		me.runfunction(value);
+		if (value > previous+me._hysteresis() or value < previous-me._hysteresis())
+			me.time_of_last_move = systime();
 		return value;
 	},
 
@@ -429,14 +426,13 @@ var axis = {
 	},
 
 	_transform:func(value) {
-		var sgn = math.sgn(var old_value = value);
 		value += me.offset; #this is "hardware" offset -- not output offset
 		if (me.reverse) value *= -1; #and harware reverse
 		# First the tricky part: instead of the center of the
 		# imaginary line drawn by F(x) being (0,0), we make it
 		# be (0,trim) and draw two lines going to that point
 		# from both (-1,-1) and (1,1) to make our new F(x)
-		if (me.trim) var value = value*(1-math.sgn(value)*me.trim)+me.trim;
+		if (me.trim) var value = value*(1+math.sgn(value)*me.trim)+me.trim;
 		# Check if within dead band range now that it is properly
 		# calibrated (i.e. after offset and trim):
 		if (math.abs(value) <= me.dead_band)
@@ -450,54 +446,23 @@ var axis = {
 		# "jump". To correct this, start the line at the edge of the
 		# dead band zone and add some to the slope so that it reaches
 		# 1 at 1-outer_dead_band.
-		value += math.sgn(value)*me.dead_band;
+		value -= math.sgn(value)*me.dead_band;
 		value *= 1/(1-me.dead_band-me.outer_dead_band);
 		# And finally apply the power and then factor transformations:
 		if (value > 0)
-			value *= math.pow( value, me.power);
+			value = math.pow( value, me.power);
 		else
-			value *=-math.pow(-value, me.power);
-		#if (me.exp and me.exp != 1) {
-		#	# Exponential equation: (b^x-1)/(b-1)
-		#	value = math.sgn(value) * (math.pow(me.exp, math.abs(value)) - 1) /
-		#	        (me.exp - 1);
-		#}
-		if (math.sgn(value) != sgn) print("Values don't match: "~value~" & "~old_value);
+			value =-math.pow(-value, me.power);
+		if (me.exp and me.exp != 1) {
+			# Exponential equation: (b^x-1)/(b-1)
+			value = math.sgn(value) * (math.pow(me.exp, math.abs(value)) - 1) /
+			        (me.exp - 1);
+		}
 		return me.factor * value;
 	},
-	_transform:func(value) {
-		value += me.offset; #this is "hardware" offset -- not output offset
-		if (me.reverse) value *= -1; #and harware reverse
-		# First the tricky part: instead of the center of the
-		# imaginary line drawn by F(x) being (0,0), we make it
-		# be (0,trim) and draw two lines going to that point
-		# from both (-1,-1) and (1,1) to make our new F(x)
-		if (me.trim) {
-			if (value < 0)
-				var value = value*(1+me.trim)+me.trim;
-			elsif (value > 0)
-				var value = value*(1-me.trim)+me.trim;
-			else var value = me.trim;
-		}
-		# Check if within dead band range now that it is properly
-		# calibrated (i.e. after offset and trim):
-		if (math.abs(value) <= me.dead_band)
-			return 0;
-		if (math.abs(value) >= 1-me.outer_dead_band)
-			return me.factor*math.sgn(value);
-		# If we were to leave it alone, then there would be a jump
-		# around the dead band areas, since in that dead band it
-		# would be 0, but above it we aren't correcting and the
-		# line coming out of the dead band zone would show a sudden
-		# "jump". To correct this, start the line at the edge of the
-		# dead band zone and add some to the slope.
-		value += math.sgn(value)*me.dead_band;
-		value *= 1/(1-me.dead_band-me.outer_dead_band);
-		# And finally apply the power and then factor transformations:
-		if (value > 0)
-			return me.factor * math.pow( value, me.power);
-		else
-			return me.factor *-math.pow(-value, me.power);
+
+	_hysteresis:func() {
+		return math.min(math.max((systime()-me.time_of_last_move)/4, 0.1), 1)*me.hysteresis;
 	},
 
 	# Low key setter functions; getters are known
