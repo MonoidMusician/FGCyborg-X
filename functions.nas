@@ -83,6 +83,44 @@ string.formatflaps = func(flaps) {
 	else "at " ~ substr(flaps*10~"", 0, 1) ~ " tenths";
 };
 
+# Read a list of indices elcosed in brackets at the end of
+# a string, where they can be hyphenated or comma-separated
+var read_indices = func(str) {
+	if (str[-1] == `]`) {
+		var indices = []; #list of all indices like in throttle[0,1,2,3,4]
+		var i = 0;
+		while (i < size(str) and str[i] != `[`) i+=1;
+		var start = i;
+		if (i >= size(str)) die("bad index specifier, no opening bracket: "~str);
+
+		while (i < size(str)) {
+			if (i != start and str[i] != `,` and str[i] != `-`) break; #didn't get a separator, so stop
+			var type = str[i] == `-`;
+			i+=1; #skip over the comma/hyphen/opening bracket
+			var last = i;
+			while (i < size(str) and string.isdigit(str[i]))
+				i += 1;
+			if (i == last) die("empty index in string: "~str);
+			#i is our first nondigit and i-last is the number of digits we have wandered through
+			if ((var current = num(substr(str, i-1, i-last))) == nil) die(str~" "~i~" "~last); #get the number
+			if (!type)
+				append(indices, current);
+			else {
+				if (math.sgn(current-indices[-1]) > 0)
+					for (var j=indices[-1]+1; j<=current; j+=1)
+						append(indices, j);
+				else
+					for (var j=current; j<=indices[-1]-1; j+=1)
+						append(indices, j);
+			}
+		}
+
+		if (str[i] != `]`) die("bad index specifier: "~str);
+		var str = substr(str, 0, start); #the rest of the str
+	} else var indices = [];
+	return [indices,str];
+};
+
 ####################
 ## Throttle modes ##
 ####################
@@ -294,36 +332,7 @@ var throttle = func(n, root) {
 					} else {
 						if (find("/", function) == -1) {
 							if (function[-1] == `]`) {
-								var indices = []; #list of all indices like in throttle[0,1,2,3,4]
-								var i = 0;
-								while (i < size(function) and function[i] != `[`) i+=1;
-								var start = i;
-								if (i >= size(function)) die("bad index specifier, no opening bracket: "~function);
-
-								while (i < size(function)) {
-									if (i != start and function[i] != `,` and function[i] != `-`) break; #didn't get a separator, so stop
-									var type = function[i] == `-`;
-									i+=1; #skip over the comma/hyphen/opening bracket
-									var last = i;
-									while (i < size(function) and string.isdigit(function[i]))
-										i += 1;
-									if (i == last) die("empty index in string: "~function);
-									#i is our first nondigit and i-last is the number of digits we have wandered through
-									if ((var current = num(substr(function, i-1, i-last))) == nil) die(function~" "~i~" "~last); #get the number
-									if (!type)
-										append(indices, current);
-									else {
-										if (math.sgn(current-indices[-1]) > 0)
-											for (var j=indices[-1]+1; j<=current; j+=1)
-												append(indices, j);
-										else
-											for (var j=current; j<=indices[-1]-1; j+=1)
-												append(indices, j);
-									}
-								}
-
-								if (function[i] != `]`) die("bad index specifier: "~function);
-								var function = substr(function, 0, start); #the rest of the function
+								var (indices,function) = read_indices(function)[:];
 							} else var indices = nil;
 							if (contains(control_functions, function)) {
 								var m = control_functions[function]; #save a couple hash lookups
@@ -654,7 +663,7 @@ var setbrakes = func(brake, relative=0, control_name="control") {
 var mod_handled=0; #mod_handled is set when we are setting the modifier...
 #...so that the listener does not try and pick it up
 setlistener(Joystick.path ~ "/modifier", func {
-	if (!mod_handled) mod = getprop(Joystick ~ "/modifier");
+	if (!mod_handled) mod = getlocalprop("modifier");
 });
 
 ##
@@ -774,6 +783,7 @@ var control_functions = {
 	slats:            ",control", # // ditto //
 	DLC:              "all", #dummy
 	aileron_droop :   "all", #and more dummy
+	sweep:            ",control",
 	retractable_gear: "control,/controls/gear/gear-down", #'control': the gearcontrol function; 'axis': second throttle
 	brakes:           "button,"~Joystick.path~"brake-cmd",  #'button':  setbrakes; 'trigger'; 'axis': second throttle
 	tailhook:         "control,/controls/gear/tailhook",  #'control': the tailhookcontrol function

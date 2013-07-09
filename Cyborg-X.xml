@@ -89,7 +89,7 @@ button 2/3:                   #               Move to "clean" config     Reset s
 <nasal>
 	<script><![CDATA[
 		printlog("debug", "Starting load of Cyborg-X.xml...");
-		if (defined("mode_editor")) mode_editor.del(); #clean up from an old load...
+		if (defined("mode_editor") and mode_editor != nil) mode_editor.del(); #clean up from an old load...
 		var Joystick = {
 			parents: [props.Node],
 			_g: props._getParent(_cmdarg(), []),

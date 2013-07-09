@@ -93,31 +93,80 @@ foreach (var ac_def; config.getChildren("aircraft")) {
 		if (ac_def.getNode("brakes/down[2]") != nil)
 			brakes.down[2] = handle_brake_script(ac_def.getNode("brakes/down[2]").getValue(), "brake.down[2] script");
 	}
-	# By default, an aircraft is assumed to have all possible functions.
-	# Provide a way to disable a function via a "no-"{function name} node
-	# set to 'true'.
-	foreach (var name; keys(control_functions)) {
-		var XML_name = string.Nasal_to_XML(name);
-		if (isa(control_functions[name], control_function)) {
-			foreach (var node_name; ["no-"~XML_name, "non-"~XML_name, "no-"~name, "non-"~name]) {
-				if (ac_def.getNode(node_name) != nil) {
-					if (ac_def.getNode(node_name).getValue()) {
-						# Disable this control
-						control_functions[name].active = 0;
-						break;
-					}
-				} else {
-					node_name ~= "s";
+	if (ac_def.getNode("control-desc") != nil) {
+		control_function.active = 0; #default to non-active
+		var desc = ac_def.getNode("control-desc").getValue();
+		desc = split(",", desc);
+		foreach (var ctrl; desc) {
+			#ctrl = string.replace(" ", "", string.replace("\n", "", string.replace("\t", "", ctrl)));
+			ctrl = string.trim(ctrl);
+			var setter = var getter = var path = nil;
+			if (find("@", ctrl) != -1) {
+				var i = (var f = find("@", ctrl))+1;
+				while (i &lt; size(ctrl) and (string.isalnum(ctrl[i]) or ctrl[i] == `/` or
+				       ctrl[i] == `.` or ctrl[i] == `_` or ctrl[i] == `-` or ctrl[i] == `,`)) {
+					i += 1;
+				}
+				var path = substr(ctrl, f+1,i-f);
+				path = string.trim(path);
+				ctrl = string.trim(substr(ctrl, 0, f));
+			}
+			if (find("&amp;", ctrl) != -1) {
+				var i = (var f = find("&amp;", ctrl))+1;
+				if (ctrl[i]  != `{`) die();
+				if (ctrl[-1] != `}`) die();
+				var level = 1;
+				i += 1;
+				while (level) {
+					if (ctrl[i] == `{`) level += 1;
+					elsif (ctrl[i] == `}`) level -= 1;
+				}
+				var list = substr(ctrl, f+1,i+1-f);
+				list = string.replace("{", "[", list);
+				list = string.replace("}", "]", list);
+				list = compile(list)();
+				var (setter,getter) = list~["",""];
+				setter = compile(setter)();
+				getter = compile(getter)();
+				ctrl = string.trim(substr(ctrl, 0, f));
+			}
+			(var indices,ctrl) = read_indices(ctrl)[:];
+			if (contains(control_functions, ctrl)) {
+				var ctrl = control_functions[ctrl];
+				ctrl.active = 1;
+				if (size(indices)) ctrl.indices = indices;
+				if (path) ctrl.path = path;
+				if (setter != nil) ctrl.setter = setter;
+				if (getter != nil) ctrl.getter = getter;
+			} else print("Unkown control_function: '"~ctrl~"'");
+		}
+	} else {
+		# By default, an aircraft is assumed to have all possible functions.
+		# Provide a way to disable a function via a "no-"{function name} node
+		# set to 'true'.
+		foreach (var name; keys(control_functions)) {
+			var XML_name = string.Nasal_to_XML(name);
+			if (isa(control_functions[name], control_function)) {
+				foreach (var node_name; ["no-"~XML_name, "non-"~XML_name, "no-"~name, "non-"~name]) {
 					if (ac_def.getNode(node_name) != nil) {
 						if (ac_def.getNode(node_name).getValue()) {
+							# Disable this control
 							control_functions[name].active = 0;
 							break;
 						}
+					} else {
+						node_name ~= "s";
+						if (ac_def.getNode(node_name) != nil) {
+							if (ac_def.getNode(node_name).getValue()) {
+								control_functions[name].active = 0;
+								break;
+							}
+						}
 					}
 				}
-			}
-		} elsif (typeof(control_functions[name]) == 'scalar' and ac_def.getNode(XML_name) != nil)
-			control_functions[name] = ac_def.getNode(XML_name).getValue();
+			} elsif (typeof(control_functions[name]) == 'scalar' and ac_def.getNode(XML_name) != nil)
+				control_functions[name] = ac_def.getNode(XML_name).getValue();
+		}
 	}
 	if (ac_def.getNode("swap-spoilers-and-speedbrake") != nil and ac_def.getNode("swap-spoilers-and-speedbrake").getValue() or
 	    ac_def.getNode("swap-speedbrake-and-spoilers") != nil and ac_def.getNode("swap-speedbrake-and-spoilers").getValue())
@@ -205,7 +254,11 @@ foreach (var ac_def; config.getChildren("aircraft")) {
 	<brakes>
 		<up>brakes.spoilers</up>
 	</brakes>
-	<no-tailhook type="bool">true</no-tailhook>
+	<control-desc>
+		aileron, elevator, rudder, throttle[0-1],
+		spoilers, retractable_gear, flaps,
+		sweep @ /controls/flight/wing-sweep &amp; {controls.wingSweep}
+	</control-desc>
 </aircraft>
 <aircraft>
 	<name>b2-spirit</name> <!-- Northrop B-2 Spirit -->
@@ -216,7 +269,6 @@ foreach (var ac_def; config.getChildren("aircraft")) {
 	<brakes>
 		<up>brakes.spoilers</up>
 	</brakes>
-	<no-tailhook type="bool">true</no-tailhook>
 </aircraft>
 <aircraft>
 	<name>b25</name> <!-- B-25 Mitchell -->
