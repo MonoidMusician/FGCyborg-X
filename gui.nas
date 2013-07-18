@@ -1,6 +1,4 @@
-io.load_nasal(Joystick.Root ~ "/gui-elements.nas", "elements");
-
-var state = {};
+io.load_nasal(getprop("/sim/fg-root") ~ "/Nasal/elements.nas", "elements");
 
 var mode_editor = nil;
 var make_window = func {
@@ -183,7 +181,6 @@ var make_window = func {
 			key.setValue(-1);           # drop key event
 		}
 	});
-	state = caller(0)[0]; #to make debugging possible, make this visible as more than a temporary namespace
 };
 
 var toggle_window = func {

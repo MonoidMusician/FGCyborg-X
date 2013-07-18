@@ -43,34 +43,34 @@ Both           #      Speed Brake*   Spoilers*      #       Parking Brake       
 
     All other buttons:
 
-Button  n/#:  (location)             No Mod          Mod 1                  Mod 2*          Mod 4
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-button  1/2:  (lower-left of hat)    Reset View      Reset All Trim         Reset View**    Tail Wheel Lock
-button  2/3:  (lower-right of hat)   Toggle TWS***   Retract spoilers****        #                #
-button  9/10: (scroll up)            Flaps Up        Gear Up                Zoom In         Slats
-button 10/11: (scroll down)          Flaps Down      Gear Down              Zoom Out        Slats
-button  3/4:  (upper-left of hat)    Previous View   Trim Rudder            Sweep in              #
-button  4/5:  (upper-right of hat)   Next View       Trim Rudder            Sweep out             #
-axis    5:    (hat left-right)       look l/r        Trim Aileron           Adj Mixture     Adj Condition/Magnetos
-axis    6:    (hat up-down)          look u/d        Trim Elevator          Adj Propeller   Throttle
+Type    #:  (location)             No Mod            Mod 1                  Mod 2*          Mod 4
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+button  2:  (lower-left of hat)    Reset View        Reset All Trim         Reset View**    Tail Wheel Lock
+button  3:  (lower-right of hat)   Toggle Extra***   Retract spoilers****        #                #
+button 10:  (scroll up)            Flaps Up          Gear Up                Zoom In         Slats
+button 11:  (scroll down)          Flaps Down        Gear Down              Zoom Out        Slats
+button  4:  (upper-left of hat)    Previous View     Trim Rudder Left       Sweep in              #
+button  5:  (upper-right of hat)   Next View         Trim Rudder Right      Sweep out             #
+axis    5:  (hat left-right)       look l/r          Trim Aileron           Adj Mixture     Adj Condition/Magnetos
+axis    6:  (hat up-down)          look u/d          Trim Elevator          Adj Propeller   Throttle
 
 Notes: *Mod 3 is the differential braking modifier, holding it down uses brakes when the rudder is moved,
         e.g. full left rudder will have the left brake at 1 and the other at 0. Mod 3 functions the same as Mod 0, hence it
         isn't in the above table.
       **Completely resets the view (Angle, FOV, Position) while the first only resets the angle and FOV.
-     ***Tail wheel steering (TWS), Nose wheel steering (NWS), FBW override, and autotrim are all combined into one function,
-        so I just say TWS.  TWS and NWS are available on David Culp's aircraft while FBW-override is F-16 specific and autotrim
-        is available if none of the others are.
+     ***Tail wheel steering (TWS), Nose wheel steering (NWS), FBW override, tailwheel-lock, and autotrim are all combined into
+        one function, which I call Extra.  TWS and NWS are available on David Culp's aircraft while FBW-override is F-16 specific
+        and autotrim or tailhook-lock are available if none of the others are.
     ****Retracts speedbrake and spoilers
 
 
-    Two buttons (#2 and #3) can be held down for a period of time (0.3 sec) or double-tapped within a period of time (0.3 sec
+    Two buttons (#2 and #3) can be held down for a period of time (0.2 sec) or double-tapped within a period of time (0.3 sec
  as well) which will activate a different function, as seen in this table:
 
-Special functions:    Hold Down: No Mod       Double Tap: No Mod         Mod 1
+Special functions:    Hold Down: No Mod   Double Tap: No Mod         Mod 1
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-button 1/2:           TWS et al. while held   Move to "landing" config   Cockpit view
-button 2/3:                   #               Move to "clean" config     Reset sim
+button 2:           Extra while held    Move to "landing" config   Cockpit view
+button 3:                   #           Move to "clean" config     Reset sim
 
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~CHANGES (not yet  tested)~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~CHANGES (soon to be made)~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -90,6 +90,7 @@ button 2/3:                   #               Move to "clean" config     Reset s
 	<script><![CDATA[
 		printlog("debug", "Starting load of Cyborg-X.xml...");
 		if (defined("mode_editor") and mode_editor != nil) mode_editor.del(); #clean up from an old load...
+		if (!defined("loopid")) var loopid = 0;
 		var Joystick = {
 			parents: [props.Node],
 			_g: props._getParent(_cmdarg(), []),
@@ -99,9 +100,9 @@ button 2/3:                   #               Move to "clean" config     Reset s
 		var namespace = cmdarg().getNode("module").getValue();
 
 		# Some global variables for aircraft detection
-		var path = getprop("/sim/model/path");
-		var model = split("/", split(".", path)[0])[-1]; #get the actual filename without folders or the extension
-		var name = substr(model, -6, 6) == "-model" ? substr(model, 0, size(model)-6) : model; #this removes a common suffix
+		var ac_path = getprop("/sim/model/path");
+		var ac_model = split("/", split(".", ac_path)[0])[-1]; #get the actual filename without folders or the extension
+		var ac_name = substr(ac_model, -6, 6) == "-model" ? substr(ac_model, 0, size(ac_model)-6) : ac_model; #this removes a common suffix
 
 		# A small utility for .new() functions,
 		# copies any variables out of the parent enclosure
@@ -126,6 +127,12 @@ button 2/3:                   #               Move to "clean" config     Reset s
 		ekey = props.globals.getNode("/input/keyboard/key["~`e`~"]"); #`e` is a number!
 		var trigger = var trigger1 = var starter = 0; #for releasing of the control when we started it
 		var mags_last_move = 0; #for stepping magnetos and engaging starter
+
+		var default_trim = {
+			aileron:  getprop("/controls/flight/aileron-trim"),
+			elevator: getprop("/controls/flight/elevator-trim"),
+			rudder:   getprop("/controls/flight/rudder-trim"),
+		};
 
 		func {
 		foreach (var b; Joystick.getChildren("button")) {
@@ -178,12 +185,16 @@ button 2/3:                   #               Move to "clean" config     Reset s
 		throttle2.setFunction(func(n) {
 			throttle2.action((1-n)/2, getlocalprop("throttle-mode"));
 		});
+		var _ = [nil,nil,nil,nil];
 
 		# Main loop to be run once per frame
-		var loop = func() {
+		var loop = func(id) {
+			if (id != globals[namespace].loopid) return;
+			foreach (var _; _)
+				delete(closure(caller(0)[1]), "arg");
 			aileron.update(); elevator.update(); rudder.update();
 			throttle1.update(); throttle2.update();
-			settimer(loop, 0);
+			settimer(func loop(id), 0);
 		};
 
 		# Run the initialization last in case it needs to overwrite anything:
@@ -195,6 +206,7 @@ button 2/3:                   #               Move to "clean" config     Reset s
 			call(compile(config.getNode("self-init/script").getValue(), "Cyborg-X/initialization.xml/self-init/script"), nil, nil, caller(0)[0], var err = []);
 			if (size(err)) debug.printerror(err);
 		}
+		config = nil; #allow GC to release it
 
 		# Pre-generate our modes and update them, AFTER initialization:
 		foreach (var mode; Joystick.getChildren("mode")) {
@@ -219,7 +231,7 @@ button 2/3:                   #               Move to "clean" config     Reset s
 		}
 
 		# And then start our loop next frame:
-		settimer(loop, 0);
+		settimer(func loop(loopid+=1), 0);
 
 		printlog("debug", "Successful load of Cyborg-X.xml");
 	]]></script>
@@ -347,7 +359,7 @@ button 2/3:                   #               Move to "clean" config     Reset s
 				elsif (mod == 4)
 				{
 					controls.adjCondition(reverseHatDir*-2);
-					if (!(systime()-0.75 &gt; mags_last_move)) return;
+					if (!(systime()-0.5 &gt; mags_last_move)) return;
 					mags_last_move = systime();
 					if (getprop("/controls/engines/engine/magnetos") == 0)
 						control_functions.battery_switch.set("button", 0);
@@ -373,7 +385,7 @@ button 2/3:                   #               Move to "clean" config     Reset s
 				elsif (mod == 4)
 				{
 					controls.adjCondition(reverseHatDir*2);
-					if (!(systime()-0.75 &gt; mags_last_move)) return;
+					if (!(systime()-0.5 &gt; mags_last_move)) return;
 					mags_last_move = systime();
 					if (control_functions.battery_switch.get("button") == 0)
 						control_functions.battery_switch.set("button", 1);
@@ -454,7 +466,7 @@ button 2/3:                   #               Move to "clean" config     Reset s
 				else setbrakes(1, 0, "trigger");
 			elsif (mod == 4)
 				setbrakes(1, 0, "trigger");
-			elsif (mod == 5)
+			elsif (mod == 5 and ekey != nil)
 				props.runBinding(ekey.getNode("binding"));
 			elsif (mod == 6)
 				brakes.down[2]();
@@ -474,7 +486,7 @@ button 2/3:                   #               Move to "clean" config     Reset s
 					{}
 				elsif (mod == 4)
 					brakes.parking(); #toggle parking brake only on mod-up
-				elsif (mod == 5)
+				elsif (mod == 5 and ekey != nil)
 					props.runBinding(ekey.getNode("mod-up/binding"));
 				elsif (mod == 6)
 					brakes.up[2]();
@@ -504,60 +516,53 @@ button 2/3:                   #               Move to "clean" config     Reset s
 		<binding>
 			<command>nasal</command>
 			<script><![CDATA[
-				if (mod == 0) {
+				if (mod == 0)
 					view.resetView();
-				} elsif (mod == 1) {
-					if (path == "Aircraft/AD-6/Models/AD-6.xml") {
-						setprop("/controls/flight/elevator-trim", -0.12);
-						setprop("/controls/flight/aileron-trim",    0.15);
-						setprop("/controls/flight/rudder-trim",     0.1);
-					} else {
-						setprop("/controls/flight/elevator-trim", 0);
-						setprop("/controls/flight/aileron-trim", 0);
-						setprop("/controls/flight/rudder-trim", 0);
-					}
-				}
+				elsif (mod == 1)
+					(func foreach (var k; keys(default_trim)) setprop("/controls/flight/"~k~"-trim", default_trim[k]))();
 			]]></script>
 		</binding>
 	</regular>
 	<hold-down>
-		<time type="double">0.3</time>
+		<time type="double">0.2</time>
 		<binding>
 			<command>nasal</command>
 			<script><![CDATA[
-				if (mod == 0 or mod == 3) {
-					var popupTip = TWS(1);
+				if (mod == 0 or mod == 3)
+				{
+					var popupTip = Extra(1);
 					if (popupTip != "" and allow_popupTips)
 						gui.popupTip(popupTip);
-				} elsif (mod == 1) {
+				} elsif (mod == 1)
 					setprop("/controls/flight/speedbrake", 1);
-				}
 			]]></script>
 		</binding>
 		<mod-up>
 			<binding>
 				<command>nasal</command>
 				<script><![CDATA[
-					if (mod == 0 or mod == 3) {
-						var popupTip = TWS(0);
+					if (mod == 0 or mod == 3)
+					{
+						var popupTip = Extra(0);
 						if (popupTip != "" and allow_popupTips)
 							gui.popupTip(popupTip);
-					} elsif (mod == 1) {
+					} elsif (mod == 1)
 						setprop("/controls/flight/speedbrake", 0);
-					}
 				]]></script>
 			</binding>
 		</mod-up>
 	</hold-down>
 	<double-click>
-		<time type="double">0.4</time>
+		<time type="double">0.3</time>
 		<binding>
 			<command>nasal</command>
 			<script><![CDATA[
-				if (mod == 0 or mod == 3) {
+				if (mod == 0 or mod == 3)
+				{
 					var popupTip = flapscontrol(1, gearcontrol(1, tailhookcontrol(1)));
 					if (popupTip != "" and allow_popupTips) gui.popupTip(popupTip);
-				} elsif (mod == 1) {
+				} elsif (mod == 1)
+				{
 					setprop("/sim/current-view/view-number", 0);
 					view.resetView();
 				}
@@ -568,7 +573,7 @@ button 2/3:                   #               Move to "clean" config     Reset s
 
 <!-- 3 -->
 <button n="2">
-	<desc>TWS; Reset spoilers</desc>
+	<desc>Extra; Reset spoilers</desc>
 	<repeatable type="bool">false</repeatable>
 	<binding>
 		<command>nasal</command>
@@ -584,10 +589,12 @@ button 2/3:                   #               Move to "clean" config     Reset s
 		<binding>
 			<command>nasal</command>
 			<script><![CDATA[
-				if (mod == 0 or mod == 3) {
-					var popupTip = TWS(nil); #toggle
+				if (mod == 0 or mod == 3)
+				{
+					var popupTip = Extra(nil); #toggle
 					if (popupTip != "" and allow_popupTips) gui.popupTip(popupTip);
-				} elsif (mod == 1) {
+				} elsif (mod == 1)
+				{
 					setprop("/controls/flight/speedbrake", 0);
 					setprop("/controls/flight/spoilers", 0);
 				}
@@ -595,7 +602,7 @@ button 2/3:                   #               Move to "clean" config     Reset s
 		</binding>
 	</regular>
 	<hold-down>
-		<time type="double">0.3</time>
+		<time type="double">0.2</time>
 		<binding>
 			<command>nasal</command>
 			<script><![CDATA[
@@ -606,17 +613,17 @@ button 2/3:                   #               Move to "clean" config     Reset s
 		</binding>
 	</hold-down>
 	<double-click>
-		<time type="double">0.4</time>
+		<time type="double">0.3</time>
 		<binding>
 			<command>nasal</command>
 			<script><![CDATA[
-				if (mod == 0 or mod == 3) {
+				if (mod == 0 or mod == 3)
+				{
 					# Step towards clean configuration:
 					var popupTip = flapscontrol(-1, gearcontrol(-1, tailhookcontrol(-1)));
 					if (popupTip != "" and allow_popupTips) gui.popupTip(popupTip);
-				} elsif (mod == 1) {
+				} elsif (mod == 1)
 					fgcommand("reset");
-				}
 			]]></script>
 		</binding>
 	</double-click>
@@ -629,22 +636,27 @@ button 2/3:                   #               Move to "clean" config     Reset s
 	<binding>
 		<command>nasal</command>
 		<script>
-			if (mod == 0 or mod == 3) {
+			if (mod == 0 or mod == 3)
+			{
 				popupTip = flapscontrol(-1);
 				if (popupTip != "" and allow_popupTips) gui.popupTip(popupTip);
 				# If the value changed, we want to set a timer to release
 				# the flaps for when they might be continuous and need an
 				# "up" signal
 				if (popupTip != "") flapdelay.reset();
-			} elsif (mod == 1) {
+			} elsif (mod == 1)
+			{
 				popupTip = gearcontrol(-1);
 				if (popupTip != "" and allow_popupTips) gui.popupTip(popupTip);
-			} elsif (mod == 2) {
+			} elsif (mod == 2)
+			{
 				view.increase();
-			} elsif (mod == 4) {
+			} elsif (mod == 4)
+			{
 				popupTip = slatscontrol(-1);
 				if (popupTip != "" and allow_popupTips) gui.popupTip(popupTip);
-			} elsif (mod == 3) {
+			} elsif (mod == 3)
+			{
 				setbrakes(0.1, 1);
 			}
 		</script>
@@ -665,7 +677,8 @@ button 2/3:                   #               Move to "clean" config     Reset s
 				# the flaps for when they might be continuous and need an
 				# "up" signal
 				if (popupTip != "") flapdelay.reset();
-			} elsif (mod == 1) {
+			} elsif (mod == 1)
+			{
 				popupTip = gearcontrol(1);
 				if (popupTip != "" and allow_popupTips) gui.popupTip(popupTip);
 			} elsif (mod == 2) {
@@ -673,7 +686,8 @@ button 2/3:                   #               Move to "clean" config     Reset s
 			} elsif (mod == 4) {
 				popupTip = slatscontrol(1);
 				if (popupTip != "" and allow_popupTips) gui.popupTip(popupTip);
-			} elsif (mod == 3) {
+			} elsif (mod == 3)
+			{
 				setbrakes(-0.1, 1);
 			}
 		</script>

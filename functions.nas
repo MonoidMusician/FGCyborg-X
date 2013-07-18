@@ -573,19 +573,18 @@ var brakes = {
 	down: [func{},func{},func{}],
 	# Functions to fill them:
 	speedbrake:func {
-		if (!control_functions.speedbrake.isControl("button")) return;
-		globals.controls.toggle("/controls/flight/speedbrake");
+		if (control_functions.speedbrake.toggle("button") == nil) return;
 		var speedbrake = getprop("/controls/flight/speedbrake");
 		if (allow_popupTips) gui.popupTip(sprintf("Speedbrake %s", speedbrake ? "EXTENDED":"RETRACTED"));
 	},
 	spoilers:func {
-		if (!control_functions.spoilers.isControl("button")) return;
-		globals.controls.toggle("/controls/flight/spoilers");
-		var spoilers = getprop("/controls/flight/spoilers");
+		if (control_functions.spoilers.toggle("button") == nil) return;
+		var spoilers = control_functions.spoilers.get("button");
 		if (allow_popupTips) gui.popupTip(sprintf("Spoilers %s", spoilers ? "EXTENDED":"RETRACTED"));
 	},
 	thrust_reverser:func {
 		if (control_functions.thrust_reverser.toggle("button") == nil) return;
+		var spoilers = control_functions.thrust_reverser.get("button");
 		if (allow_popupTips) gui.popupTip(sprintf("Thrust Reversers %s", reverser ? "DEPLOYED":"RETRACTED"));
 	},
 	parking:func {
@@ -717,6 +716,7 @@ var modifier = func(state=nil) {
 #
 var control_function = {
 	active: 1, default_control: "all",
+	setter: nil, getter: nil, toggler: nil, stepper: nil,
 	# Returns the name on success or nil if it is not active
 	takeControl:func(name) if (me.isActive()) me.control = name,
 	# Returns the default_control on success or nil if releasing control failed
@@ -731,6 +731,7 @@ var control_function = {
 	# Set this control to the specified value if the name has control and the control is active; else nil
 	set:func(name, value, index=nil) {
 		if (!me.isControl(name) or !me.isActive()) return;
+		if (me.setter != nil) return me.setter(value, index);
 		if (!contains(me, "prop")) die("control_function.set cannot set a control without a property");
 		var s = split("[,]/", me.prop);
 		if (size(s) == 2)
@@ -743,6 +744,7 @@ var control_function = {
 	# Get the value of this control if the name has control and the control is active; else nil
 	get:func(name="", index=nil) {
 		if (!me.isControl(name) or !me.isActive()) return;
+		if (me.getter != nil) return me.getter();
 		if (!contains(me, "prop")) die("control_function.get cannot get a control without a property");
 		var s = split("[,]/", me.prop);
 		if (size(s) == 2)
@@ -759,9 +761,20 @@ var control_function = {
 		else return getprop(s[0]);
 	},
 	toggle:func(name="", switch=0.15, index=nil) {
+		if (me.toggler != nil)
+			if (!me.isControl(name) or !me.isActive()) return;
+			else me.toggler(index); #don't pass switch on
 		var v = me.get(name, index);
 		if (v == nil) return;
 		me.set(name, v <= switch, index);
+	},
+	step:func(name, step, index=nil) {
+		if (me.stepper != nil)
+			if (!me.isControl(name) or !me.isActive()) return;
+			else me.stepper(step, index);
+		var v = me.get(name, index);
+		if (v == nil) return;
+		me.set(name, v +step, index);
 	},
 };
 
@@ -815,7 +828,6 @@ foreach (var item; keys(control_functions)) {
 		if (f == -1) {
 			control_functions[item] = {
 				default_control: fn,
-				active: 0,
 				parents: [control_function]
 			};
 		# If it comes at the end, then we use the name and
@@ -825,7 +837,6 @@ foreach (var item; keys(control_functions)) {
 				default_control: substr(fn, 0, f),
 				prop: "/controls/engines/engine[,]/"~string.Nasal_to_XML(item, "_", "-"),
 				min: 0, max:1,
-				active: 1,
 				parents: [control_function]
 			};
 		# If it comes at the beginning, then prepend
@@ -836,7 +847,6 @@ foreach (var item; keys(control_functions)) {
 				default_control: substr(fn, 1),
 				prop: "/controls/flight/"~string.Nasal_to_XML(item, "_", "-"),
 				min: -1, max: 1,
-				active: 1,
 				parents: [control_function]
 			};
 		# Otherwise we split it into control,prop
@@ -844,7 +854,6 @@ foreach (var item; keys(control_functions)) {
 			control_functions[item] = {
 				default_control: substr(fn, 0, f),
 				prop: substr(fn, f+1),
-				active: 1,
 				parents: [control_function]
 			};
 		}
@@ -861,13 +870,18 @@ control_functions.flaps.min = control_functions.slats.min = control_functions.sp
 #
 control_functions.use_condition = 0;
 
+##
+# Shortcut for activating almost-always-used controls
+# in control-desc descriptions
+#
+control_functions.main = { parents:[control_function] };
+append(control_functions.aileron.parents, control_functions.main);
+append(control_functions.elevator.parents, control_functions.main);
+append(control_functions.rudder.parents, control_functions.main);
+append(control_functions.throttle.parents, control_functions.main);
+
 if (getprop("/fdm/jsbsim/systems/hook/tailhook-cmd-norm") != nil) {
 	control_functions.tailhook.prop = "/fdm/jsbsim/systems/hook/tailhook-cmd-norm";
-}
-if (name == "c172p") {
-	controls.startEngine = func(s=1) {
-		setprop("/controls/switches/starter", s);
-	}
 }
 
 ##
@@ -1027,11 +1041,13 @@ var gearcontrol = func(step, popupTip="") {
 	return popupTip;
 };
 
-# All the props that fall under 'TWS'
+# All the props that fall under 'Extras' (formerly TWS)
+# to be changed by buttons 2 (hold-down) & 3 (tap)
+# (both without mod)
 # Order: [prop, pre, [on, off], wow]
 # Usage:
 #   if (getprop(prop) != nil and in_air() != wow) popupTip ~= pre ~ [on, off][getprop(prop)];
-var TWS_list = [
+var Extra_list = [
 	["/fdm/jsbsim/fcs/fbw-override", "FBW system ", ["ACTIVE", "OVERRIDEN"], 0],
 	["/fdm/jsbsim/systems/TWS/engaged", "TWS ", ["DISENGAGED", "ENGAGED"], 1],
 	["/fdm/jsbsim/systems/NWS/engaged", "NWS ", ["DISENGAGED", "ENGAGED"], 1],
@@ -1040,37 +1056,34 @@ var TWS_list = [
 
 # Either toggle the group (n == nil) or set the value (n != nil)
 # Tail-wheel steering, Nose-wheel steering, and FBW override are handled individually
-var TWS = func(n=nil, popupTip="") {
+var Extra = func(n=nil, popupTip="") {
 	var in_air = in_air();
 	if (n == nil) {
-		foreach (var item; TWS_list) {
+		foreach (var item; Extra_list) {
 			var (prop, name, switch, wow) = item;
-			if (prop[0] == `!`) {
-				prop = substr(prop, 1);
-			}
+			if (wow == nil) continue; #this one is disabled
+			if (prop[0] == `!`) prop = substr(prop, 1);
 			if (getprop(prop) != nil and in_air != wow) {
 				setprop(prop, !getprop(prop));
-				popupTip ~= name ~ switch[getprop(prop)];
+				return popupTip ~ name ~ switch[getprop(prop)];
 			}
 		}
 	} else {
-		var has_one = 0;
-		foreach (var item; TWS_list) {
+		foreach (var item; Extra_list) {
 			var (prop, name, switch, wow) = item;
+			if (wow == nil) continue; #this one is disabled
 			if (prop[0] == `!`) {
 				prop = substr(prop, 1);
 				var reverse = 1;
 			} else var reverse = 0;
 			if (getprop(prop) != nil and in_air != wow) {
-				var has_one = 1;
 				setprop(prop, reverse ? !n : n);
-				popupTip ~= name ~ switch[getprop(prop)];
+				return popupTip ~ name ~ switch[getprop(prop)];
 			}
 		}
-		if (!has_one) { #do autotrim instead
-			n ? aircraft.autotrim.start() : aircraft.autotrim.stop();
-			popupTip ~= n ? "Autotrimming" : "Autotrim complete";
-		}
+		#do autotrim instead
+		n ? aircraft.autotrim.start() : aircraft.autotrim.stop();
+		popupTip ~= n ? "Autotrimming" : "Autotrim complete";
 	}
 	return popupTip;
 };

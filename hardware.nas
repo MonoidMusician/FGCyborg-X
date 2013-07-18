@@ -53,7 +53,15 @@ if (0) var trace = print;
 else   var trace = func() {};
 
 var Button = {
-	hold_down_flag:0, state:0, events:0,
+	pressed:0, events:0,
+	STATE_CANCELLED: -1,
+	STATE_ZERO: 0,
+	STATE_DOWN1: 1,
+	STATE_UP1: 2,
+	STATE_DOWN2: 3,
+	STATE_UP2: 4,
+	STATE_HOLD_DOWN: 5,
+	STATE_DOUBLE_CLICK: 6,
 	new:func(node=1,
 	         hold_down_time=nil,     hold_down_function=nil,    regular_function=nil,      hold_down_release=nil,
 	         double_click_time=nil,  double_click_function=nil, regular_down_function=nil, double_click_type=1) {
@@ -71,22 +79,31 @@ var Button = {
 	},
 
 	down:func {
-		me.state = 1;
+		trace("DOWN: "~me.events);
+		me.pressed = 1;
+		if (me.events == me.STATE_DOUBLE_CLICK or
+		    me.events == me.STATE_HOLD_DOWN)
+			{ return }
 		# Cache values:
 		double_click_time = me.double_click_time();
 		hold_down_time = me.hold_down_time();
 		if (double_click_time) {
-			if (me.events == 0 or me.events == 2) me.events += 1;
-			if (me.events == 3 and me.double_click_type == 1) {
-				me.double_click_function(); me.events = 0
-			} elsif (me.events <= 1) { #if it is our first click
+			if (me.events == me.STATE_ZERO or me.events == me.STATE_UP1) me.events += 1;
+			if (me.events == me.STATE_DOWN2 and me.double_click_type == 1) {
+				trace("double_click_function()");
+				me.double_click_function();
+				me.events = me.STATE_DOUBLE_CLICK;
+			} elsif (me.events == me.STATE_DOWN1) { #if it is our first click
 				settimer(func {
-					if (!me.double_click_time()) return;
-					if (!me.hold_down_flag and me.events >= 2) {
+					trace("DBL-CLICK: "~me.events);
+					if (me.events == me.STATE_DOUBLE_CLICK)
+						me.events = me.STATE_ZERO;
+					elsif (me.events != me.STATE_CANCELLED and
+					       me.events != me.STATE_HOLD_DOWN) {
 						me.regular_function();
-						trace("double_click_timer " ~ me.events);
-					}
-					me.events = 0;
+						trace("double_click_timeout");
+						me.events = me.STATE_ZERO;
+					};
 				}, double_click_time);
 			}
 		} else {
@@ -94,13 +111,12 @@ var Button = {
 		}
 		if (hold_down_time) {
 			settimer(func {
+				trace("HOLD-DWN: "~me.events);
 				if (!me.hold_down_time()) return;
-				if (me.state and me.events <= 2) {
+				if (me.events == me.STATE_DOWN1) {
 					me.hold_down_function();
-					me.hold_down_flag = 1;
+					me.events = me.STATE_HOLD_DOWN;
 					trace("hold_down_function()");
-				} else {
-					me.hold_down_flag = 0;
 				}
 			}, hold_down_time);
 		} else {
@@ -112,18 +128,25 @@ var Button = {
 	},
 
 	up:func {
-		me.state = 0;
-		double_click_time = me.double_click_time();
-		hold_down_time = me.hold_down_time();
-		if (double_click_time) {
-			if (me.events == 1 or me.events == 3) me.events += 1;
-			if (me.events == 4 and me.double_click_type == 0) { me.double_click_function(); me.events = 0 }
-		}
-		if (me.hold_down_flag) {
+		trace("UP: "~me.events);
+		me.pressed = 0;
+		if (me.events == me.STATE_CANCELLED) {
+			me.events = me.STATE_ZERO;
+		} elsif (me.events == me.STATE_DOUBLE_CLICK) {
+			return;
+		} elsif (me.events == me.STATE_HOLD_DOWN) {
 			me.hold_down_release();
-			me.hold_down_flag = 0;
-		} elsif (!hold_down_time and !double_click_time) {
-			me.regular_function();
+			me.events = me.STATE_ZERO;
+			trace("hold_down_release()");
+		} else {
+			if (me.double_click_time()) {
+				if (me.events == me.STATE_DOWN1 or me.events == me.STATE_DOWN2) me.events += 1;
+				if (me.events == me.STATE_UP2 and me.double_click_type == 0) {
+					trace("double_click_function()");
+					me.double_click_function();
+					me.events = me.STATE_DOUBLE_CLICK;
+				}
+			} else me.regular_function();
 		}
 	},
 

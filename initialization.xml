@@ -32,7 +32,7 @@
 # access to the current PropertyList file is through the config
 # variable.
 
-func { #temporary namespace
+(func { #temporary namespace
 
 var handle_brake_script = func(value, name) {
 	return (find("(", value)+1) ? compile(value, name) : compile(value, name)();
@@ -57,15 +57,15 @@ foreach (var ac_def; config.getChildren("aircraft")) {
 	if (ac_def.getNode("path") != nil) {
 		var found = 0;
 		foreach (var pathN; ac_def.getChildren("path"))
-			if (pathN.getValue() == path) {found = 1; break}
+			if (pathN.getValue() == ac_path) {found = 1; break}
 	} if (found != 1 and ac_def.getNode("model") != nil) {
 		var found = 0;
 		foreach (var modelN; ac_def.getChildren("model"))
-			if (modelN.getValue() == model) {found = 1; break}
+			if (modelN.getValue() == ac_model) {found = 1; break}
 	} if (found != 1 and ac_def.getNode("name") != nil) {
 		var found = 0;
 		foreach (var nameN; ac_def.getChildren("name"))
-			if (nameN.getValue() == name) {found = 1; break}
+			if (nameN.getValue() == ac_name) {found = 1; break}
 	}
 	if (!found) continue;
 	foreach (mode; var mode; ac_def.getChildren("mode")) {
@@ -96,22 +96,37 @@ foreach (var ac_def; config.getChildren("aircraft")) {
 	if (ac_def.getNode("control-desc") != nil) {
 		control_function.active = 0; #default to non-active
 		var desc = ac_def.getNode("control-desc").getValue();
-		desc = split(",", desc);
+		desc = split(";", desc);
 		foreach (var ctrl; desc) {
-			#ctrl = string.replace(" ", "", string.replace("\n", "", string.replace("\t", "", ctrl)));
-			ctrl = string.trim(ctrl);
-			var setter = var getter = var path = nil;
+			ctrl = string.replace(string.replace(string.replace(ctrl, "\t", ""), "\n", ""), " ", "");
+			#ctrl = string.trim(ctrl);
+			printlog("debug", "Desc_str: '"~ctrl~"'");
+			var path = nil;
+			var list = [nil,nil,nil,nil];
 			if (find("@", ctrl) != -1) {
+				printlog("debug", ".. Found path indentifier");
 				var i = (var f = find("@", ctrl))+1;
 				while (i &lt; size(ctrl) and (string.isalnum(ctrl[i]) or ctrl[i] == `/` or
 				       ctrl[i] == `.` or ctrl[i] == `_` or ctrl[i] == `-` or ctrl[i] == `,`)) {
 					i += 1;
 				}
-				var path = substr(ctrl, f+1,i-f);
+				var path = substr(ctrl, f+1,i-f-1);
 				path = string.trim(path);
+				printlog("debug", "... was '"~path~"'");
+				if (i &lt; size(ctrl) and ctrl[i] == `(`) {
+					printlog("debug", ".. Found type descriptor");
+					var start = i+=1;
+					while (ctrl[i] != `)`)
+						i+=1;
+					var type = substr(ctrl, start, i-start);
+					printlog("debug", "... was '"~type~"'");
+					props.globals.initNode(path, 0, type);
+				}
 				ctrl = string.trim(substr(ctrl, 0, f));
+				printlog("debug", ".. Control is now '"~ctrl~"'");
 			}
 			if (find("&amp;", ctrl) != -1) {
+				printlog("debug", ".. Found accessor functions");
 				var i = (var f = find("&amp;", ctrl))+1;
 				if (ctrl[i]  != `{`) die();
 				if (ctrl[-1] != `}`) die();
@@ -120,24 +135,26 @@ foreach (var ac_def; config.getChildren("aircraft")) {
 				while (level) {
 					if (ctrl[i] == `{`) level += 1;
 					elsif (ctrl[i] == `}`) level -= 1;
+					i += 1;
 				}
-				var list = substr(ctrl, f+1,i+1-f);
-				list = string.replace("{", "[", list);
-				list = string.replace("}", "]", list);
-				list = compile(list)();
-				var (setter,getter) = list~["",""];
-				setter = compile(setter)();
-				getter = compile(getter)();
+				var list = substr(ctrl, f+2,i-f-3);
+				printlog("debug", "... List is '"~list~"'");
+				list = split(",", list);
+				forindex (var i; list)
+					if (list[i]) list[i] = compile(list[i])();
 				ctrl = string.trim(substr(ctrl, 0, f));
+				printlog("debug", ".. Control is now '"~ctrl~"'");
 			}
 			(var indices,ctrl) = read_indices(ctrl)[:];
 			if (contains(control_functions, ctrl)) {
 				var ctrl = control_functions[ctrl];
 				ctrl.active = 1;
 				if (size(indices)) ctrl.indices = indices;
-				if (path) ctrl.path = path;
-				if (setter != nil) ctrl.setter = setter;
-				if (getter != nil) ctrl.getter = getter;
+				if (path) ctrl.prop = path;
+				if (typeof(list[0]) == 'func') ctrl.setter = list[0];
+				if (typeof(list[1]) == 'func') ctrl.getter = list[1];
+				if (typeof(list[2]) == 'func') ctrl.stepper = list[2];
+				if (typeof(list[3]) == 'func') ctrl.toggler = list[3];
 			} else print("Unkown control_function: '"~ctrl~"'");
 		}
 	} else {
@@ -167,15 +184,36 @@ foreach (var ac_def; config.getChildren("aircraft")) {
 			} elsif (typeof(control_functions[name]) == 'scalar' and ac_def.getNode(XML_name) != nil)
 				control_functions[name] = ac_def.getNode(XML_name).getValue();
 		}
+		if (ac_def.getNode("swap-spoilers-and-speedbrake") != nil and ac_def.getNode("swap-spoilers-and-speedbrake").getValue() or
+			ac_def.getNode("swap-speedbrake-and-spoilers") != nil and ac_def.getNode("swap-speedbrake-and-spoilers").getValue())
+			(control_functions.spoilers, control_functions.speedbrake) = (control_functions.speedbrake, control_functions.spoilers);
 	}
-	if (ac_def.getNode("swap-spoilers-and-speedbrake") != nil and ac_def.getNode("swap-spoilers-and-speedbrake").getValue() or
-	    ac_def.getNode("swap-speedbrake-and-spoilers") != nil and ac_def.getNode("swap-speedbrake-and-spoilers").getValue())
-		(control_functions.spoilers, control_functions.speedbrake) = (control_functions.speedbrake, control_functions.spoilers);
+	foreach (var name; keys(control_functions)) {
+		if (getprop("/sim/"~name~"/setting") == nil) continue;
+		(func {
+		var name = caller(1)[0].name; # FIXME: why do we need this? Shouldn't just 'name' work?
+		control_functions[name].active = 1;
+		var settings = props.globals.getNode("/sim/"~name).getChildren("setting");
+		control_functions[name].clipto = func(val) {
+			# Stepped flaps movement:
+			var last_setting = getprop(me.prop);
+			var last_value = 0;
+			foreach (var set; settings) {
+				var setting = set.getValue();
+				if (val &gt;= setting) {
+					var last_value = setting;
+				} else return
+					(val2 &lt; (last_value + setting) / 2)
+					? last_value : setting;
+			}
+		};
+		})();
+	}
 	if (ac_def.getNode("script") != nil)
 		call(compile(ac_def.getNode("script").getValue(), ac_def.getPath()~"/script"), [ac_def], nil, caller()[0]);
 	if (found != -1) break;
 }
-}();
+})();
 </script>
 </self-init>
 
@@ -255,8 +293,8 @@ foreach (var ac_def; config.getChildren("aircraft")) {
 		<up>brakes.spoilers</up>
 	</brakes>
 	<control-desc>
-		aileron, elevator, rudder, throttle[0-1],
-		spoilers, retractable_gear, flaps,
+		main; throttle[0-1];
+		spoilers; retractable_gear; flaps;
 		sweep @ /controls/flight/wing-sweep &amp; {controls.wingSweep}
 	</control-desc>
 </aircraft>
@@ -424,12 +462,12 @@ foreach (var ac_def; config.getChildren("aircraft")) {
 		</throttle>
 		<throttle>
 			<function>
-				var last = getprop("/controls/flight/spoiler")
+				var last = getprop("/controls/flight/spoiler");
 				if (arg[0] &lt; 0.25)
 					setprop("/controls/flight/spoiler", 0);
-				elif (arg[0] &lt; 0.5)
+				elsif (arg[0] &lt; 0.5)
 					setprop("/controls/flight/spoiler", 1);
-				elif (arg[0] &lt; 0.75)
+				elsif (arg[0] &lt; 0.75)
 					setprop("/controls/flight/spoiler", 2);
 				else
 					setprop("/controls/flight/spoiler", 3);
@@ -450,8 +488,14 @@ foreach (var ac_def; config.getChildren("aircraft")) {
 				setprop("/controls/flight/spoiler", getprop("/controls/flight/spoiler")+1);
 			if (allow_popupTips) gui.popupTip("Spoilers set to "~["NONE", "AUTO", "AUTO or 2/3", "FULL"][getprop("/controls/flight/spoiler")]);
 		</up>
-		<up>brakes.thrust_reverser</up>
+		<up>reversethrust.togglereverser</up>
 	</brakes>
+	<control-desc>
+		main; throttle[0-1];
+		retractable_gear; flaps;
+		spoilers @ /controls/flight/spoiler (INT);
+		thrust_reverser &amp; { , , , reversethrust.togglereverser}
+	</control-desc>
 	<no-tailhook type="bool">true</no-tailhook>
 	<script>
 		props.globals.initNode("/controls/flight/spoiler", 0, "INT"); #bug, the 787 doesn't initalize this as of FG v.2.6
@@ -483,9 +527,9 @@ foreach (var ac_def; config.getChildren("aircraft")) {
 
 	<mode>Throttle L/R (3 Engines)</mode>
 	<mode>Throttle / Brakes</mode>
-	<no-flaps type="bool">true</no-flaps>
-	<non-retractable-gear type="bool">true</non-retractable-gear>
-	<no-tailhook type="bool">true</no-tailhook>
+	<control-desc>
+		main; throttle[0-3];
+	</control-desc>
 </aircraft>
 <aircraft>
 	<name>AN-225</name> <!-- Antonov AN-225 heavy/outsize cargo aircraft -->
@@ -564,8 +608,11 @@ foreach (var ac_def; config.getChildren("aircraft")) {
 	<brakes>
 		<up>brakes.speedbrake</up>
 	</brakes>
-	<swap-spoilers-and-speedbrake type="bool">true</swap-spoilers-and-speedbrake>
-	<no-tailhook type="bool">true</no-tailhook>
+	<control-desc>
+		main; throttle[0-1];
+		flaps; slats; retractable_gear;
+		speedbrake @ /controls/flight/spoilers
+	</control-desc>
 	<script>
 		# Set afterburners to 'AUTO' (not always on, but able to be on)
 		setprop("/controls/engines/engine[0]/reheat", 1);
@@ -952,6 +999,9 @@ foreach (var ac_def; config.getChildren("aircraft")) {
 	<no-tailhook type="bool">true</no-tailhook>
 	<script>
 		control_functions.starter.prop = "/controls/switches/starter";
+		controls.startEngine = func(s=1) {
+			setprop("/controls/switches/starter", s);
+		};
 	</script>
 </aircraft>
 
@@ -1072,9 +1122,9 @@ foreach (var ac_def; config.getChildren("aircraft")) {
 			<function>brake-cmd</function>
 		</throttle>
 	</mode>
-	<non-retractable-gear type="bool">true</non-retractable-gear>
-	<no-flaps type="bool">true</no-flaps>
-	<no-tailhook type="bool">true</no-tailhook>
+	<control-desc>
+		main; throttle[0]; starter
+	</control-desc>
 </aircraft>
 <aircraft>
 	<name>JT-5B</name> <!-- JT-5B Autogyro -->
@@ -1088,15 +1138,15 @@ foreach (var ac_def; config.getChildren("aircraft")) {
 			<function>
 				var starter = arg[0] &gt; 0.85;
 				var brake = arg[0] &gt; 0.2 or in_air() ? 0 : (0.2-arg[0])/0.2;
-				setprop(\"/controls/engines/engine/starter\", starter);
-				setprop(\"/controls/rotor/brake\", brake);
+				setprop("/controls/engines/engine/starter", starter);
+				setprop("/controls/rotor/brake", brake);
 			</function>
 		</throttle>
 	</mode>
 	<mode>Throttle / Brakes</mode>
-	<non-retractable-gear type="bool">true</non-retractable-gear>
-	<no-flaps type="bool">true</no-flaps>
-	<no-tailhook type="bool">true</no-tailhook>
+	<control-desc>
+		main; throttle[0]; starter
+	</control-desc>
 </aircraft>
 
 <!-- ======================================== HISTORICAL ======================================== -->
