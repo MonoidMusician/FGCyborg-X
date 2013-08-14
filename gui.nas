@@ -1,3 +1,4 @@
+if(io.stat(getprop("/sim/fg-root") ~ "/Nasal/elements.nas") == nil) return;
 io.load_nasal(getprop("/sim/fg-root") ~ "/Nasal/elements.nas", "elements");
 
 var mode_editor = nil;
