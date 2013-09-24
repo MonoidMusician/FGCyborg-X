@@ -187,6 +187,20 @@ button 3:                   #           Move to "clean" config     Reset sim
 		});
 		var _ = [nil,nil,nil,nil];
 
+		# Autopilot control
+		setlistener("/autopilot/locks/speed", func(n) {
+			if (n.getValue()) control_functions.throttle.takeControl("autopilot");
+			else control_functions.throttle.releaseControl("autopilot");
+		}, 1, 0);
+		setlistener("/autopilot/locks/heading", func(n) {
+			if (n.getValue()) control_functions.aileron.takeControl("autopilot");
+			else control_functions.aileron.releaseControl("autopilot");
+		}, 1, 0);
+		setlistener("/autopilot/locks/altitude", func(n) {
+			if (n.getValue()) control_functions.elevator.takeControl("autopilot");
+			else control_functions.elevator.releaseControl("autopilot");
+		}, 1, 0);
+
 		# Main loop to be run once per frame
 		var loop = func(id) {
 			if (id != globals[namespace].loopid) return;
