@@ -98,6 +98,8 @@ button 3:                   #           Move to "clean" config     Reset sim
 			Root: getprop("/sim/fg-root") ~ "/Input/Joysticks/Saitek/Cyborg-X",
 		};
 		var namespace = cmdarg().getNode("module").getValue();
+		if (globals[namespace] != caller(0)[0])
+			die();
 
 		# Some global variables for aircraft detection
 		var ac_path = getprop("/sim/model/path");
@@ -189,21 +191,27 @@ button 3:                   #           Move to "clean" config     Reset sim
 
 		# Autopilot control
 		setlistener("/autopilot/locks/speed", func(n) {
+			print(n.getValue() ? "speed-on" : "speed-off");
 			if (n.getValue()) control_functions.throttle.takeControl("autopilot");
 			else control_functions.throttle.releaseControl("autopilot");
+			print(control_functions.throttle.control);
 		}, 1, 0);
 		setlistener("/autopilot/locks/heading", func(n) {
+			print(n.getValue() ? "heading-on" : "heading-off");
 			if (n.getValue()) control_functions.aileron.takeControl("autopilot");
 			else control_functions.aileron.releaseControl("autopilot");
+			print(control_functions.aileron.control);
 		}, 1, 0);
 		setlistener("/autopilot/locks/altitude", func(n) {
+			print(n.getValue() ? "altitide-on" : "altitude-off");
 			if (n.getValue()) control_functions.elevator.takeControl("autopilot");
 			else control_functions.elevator.releaseControl("autopilot");
+			print(control_functions.elevator.control);
 		}, 1, 0);
 
 		# Main loop to be run once per frame
 		var loop = func(id) {
-			if (id != globals[namespace].loopid) return;
+			if (globals[namespace] != nil and id != globals[namespace].loopid) return;
 			foreach (var _; _)
 				delete(closure(caller(0)[1]), "arg");
 			aileron.update(); elevator.update(); rudder.update();

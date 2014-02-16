@@ -425,11 +425,6 @@ var Axis = {
 		    : value <= me.axisvalue)
 			#me.aim = me.axisvalue;  #if so, aim directly for the axis
 			me.value = me.axisvalue; #if so, set us to be right there
-		if (math.abs(previous - value) > 0.03*getprop("/sim/time/delta-sec"))
-			printlog("warn",
-			   sprintf("value is changing too much prev: %4f, curr: %4f, "
-			   "aim: %4f, axis: %4f",
-			           previous, me.value, me.aim, me.axisvalue));
 
 		me.runfunction(value);
 		if (value > previous+me._hysteresis() or value < previous-me._hysteresis())
@@ -439,7 +434,9 @@ var Axis = {
 
 	runfunction:func(n=nil) {
 		if (n == nil) n = me.get();
-		if (me.getJammed()) return;
+		if (me.getJammed()) {
+			return;
+		}
 		foreach (var fn; me.functions)
 			if (fn != nil) call(fn, [n], me);
 		var prop = typeof(me.prop) == 'func' ? me.prop() : me.prop;
@@ -539,7 +536,7 @@ var Axis = {
 		};
 	},
 	getJammed:func {
-		if (me.jammed == nil and me.jammed_hash != nil)
+		if (me.jammed_hash != nil)
 			return !(me.jammed_hash.isControl("axis") and me.jammed_hash.isActive());
 		else
 			return !!me.jammed;

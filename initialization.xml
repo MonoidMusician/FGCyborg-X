@@ -1292,9 +1292,10 @@ foreach (var ac_def; config.getChildren("aircraft")) {
 		</throttle>
 		<throttle>
 			<function>
+				debug.dump(bo105.engines);
 				# Raw Access:
-				setprop(\"/controls/engines/engine[0]/power\", bo105.engines.engine[0].power=arg[0]);
-				setprop(\"/controls/engines/engine[1]/power\", bo105.engines.engine[1].power=arg[0]);
+				setprop("/controls/engines/engine[0]/power", bo105.engines.engine[0].power=arg[0]);
+				setprop("/controls/engines/engine[1]/power", bo105.engines.engine[1].power=arg[0]);
 			</function>
 		</throttle>
 	</mode>

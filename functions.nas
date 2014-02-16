@@ -730,9 +730,13 @@ var control_function = {
 	isActive:func() return me.active,
 	# Set this control to the specified value if the name has control and the control is active; else nil
 	set:func(name, value, index=nil) {
-		if (!me.isControl(name) or !me.isActive()) return;
+		if (!me.isControl(name) or !me.isActive()) {
+			#print("not me!");
+			return;
+		}
 		if (me.setter != nil) return me.setter(value, index);
 		if (!contains(me, "prop")) die("control_function.set cannot set a control without a property");
+		#print("setting "~me.prop~" to "~value~" under auth of "~name);
 		var s = split("[,]/", me.prop);
 		if (size(s) == 2)
 			if (index == nil)
@@ -875,10 +879,10 @@ control_functions.use_condition = 0;
 # in control-desc descriptions
 #
 control_functions.main = { parents:[control_function] };
-append(control_functions.aileron.parents, control_functions.main);
-append(control_functions.elevator.parents, control_functions.main);
-append(control_functions.rudder.parents, control_functions.main);
-append(control_functions.throttle.parents, control_functions.main);
+control_functions.aileron.parents[0] = control_functions.main;
+control_functions.elevator.parents[0] = control_functions.main;
+control_functions.rudder.parents[0] = control_functions.main;
+control_functions.throttle.parents[0] = control_functions.main;
 
 if (getprop("/fdm/jsbsim/systems/hook/tailhook-cmd-norm") != nil) {
 	control_functions.tailhook.prop = "/fdm/jsbsim/systems/hook/tailhook-cmd-norm";
