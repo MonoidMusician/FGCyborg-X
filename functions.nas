@@ -60,14 +60,7 @@ _make_extension("controls", "toggle", func(prop, switch=0.15) {
 _make_extension("props", "toggle", func(switch=0.15) {
 	me.setValue(me.getValue() <= switch);
 }, "Node");
-# Hack until I get changes to the source...
-# Remove this and replace with simply props.Node.getValue(node)
-# for versions >= 2.11.
-_make_extension("props", "getNodeValue", func {
-	if (!size(arg)) return me.getValue();
-	var _node = _getNode(me._g, arg);
-	return _node==nil ? nil : wrap(_getValue(_node, []));
-}, "Node");
+props.Node.getNodeValue = props.Node.getValue;
 
 # Make a nicely formatted flaps/slats/etc display
 string.formatflaps = func(flaps) {
@@ -208,87 +201,13 @@ var throttle = func(n, root) {
 						setprop("/controls/engines/engine[2]/throttle",
 						   (getprop("/controls/engines/engine[0]/throttle") +
 							getprop("/controls/engines/engine[4]/throttle")) /2);
-					# Most of these retained for backwards compatability:
-					} elsif (function == "controls.throttleAxis()") {
-						if (min==nil) var min=0;
-						if (max==nil) var max=1;
-						return func(val) {
-							if (!control_functions.throttle.isControl("axis") or !control_functions.throttle.isActive()) return;
-							var val2 = val*(max-min)+min;
-							foreach(var e; controls.engines)
-								if(e.selected.getValue())
-									setprop("/controls/engines/engine[" ~ e.index ~ "]/throttle", val2);
-						}
-					} elsif (function == "controls.propellerAxis()") {
-						if (min==nil) var min=0;
-						if (max==nil) var max=1;
-						return func(val) {
-							if (!control_functions.propeller_pitch.isControl("axis") or !control_functions.propeller_pitch.isActive()) return;
-							var val2 = val*(max-min)+min;
-							foreach(var e; controls.engines)
-								if(e.selected.getValue())
-									setprop("/controls/engines/engine[" ~ e.index ~ "]/propeller-pitch", val2);
-						}
-					} elsif (function == "controls.mixtureAxis()") {
-						if (min==nil) var min=0;
-						if (max==nil) var max=1;
-						return func(val) {
-							if (!control_functions.mixture.isControl("axis") or !control_functions.mixture.isActive()) return;
-							var val2 = val*(max-min)+min;
-							foreach(var e; controls.engines)
-								if(e.selected.getValue())
-									setprop("/controls/engines/engine[" ~ e.index ~ "]/mixture", val2);
-						}
-					} elsif (function == "controls.conditionAxis()") {
-						if (min==nil) var min=0;
-						if (max==nil) var max=1;
-						return func(val) {
-							if (!control_functions.condition.isControl("axis") or !control_functions.condition.isActive()) return;
-							var val2 = val*(max-min)+min;
-							foreach(var e; controls.engines)
-								if(e.selected.getValue())
-									setprop("/controls/engines/engine[" ~ e.index ~ "]/condition", val2);
-						}
-					} elsif (function == "controls.flapsAxis()") {
-						if (min==nil) var min=1; #switch the default values around
-						if (max==nil) var max=0;
-						var flaps = props.globals.getNode("/sim/flaps");
-						if(flaps != nil and size(var settings = flaps.getChildren("setting")) > 1) return func(val) {
-							# Stepped flaps movement:
-							var last_setting = getprop("/controls/flight/flaps");
-							var val2 = val*(max-min)+min;
-							var last_value = 0;
-							foreach (var set; settings) {
-								var setting = set.getValue();
-								if (val2 >= num(string.trim(setting~""))) { #the dassault-breguet super etendard has spaces around it's values
-									var last_value = setting;
-								} else {
-									if (val2 < (last_value + setting) / 2)
-										setprop("/controls/flight/flaps", last_value);
-									else
-										setprop("/controls/flight/flaps", setting);
-									break;
-								}
-							}
-							if ((var flaps = getprop("/controls/flight/flaps")) != last_setting)
-								gui.popupTip("Flaps "~string.formatflaps(flaps));
-						} else return func(val) {
-							# Smooth flaps movement:
-							var last_setting = getprop("/controls/flight/flaps");
-							setprop("/controls/flight/flaps", val*(max-min)+min);
-							var flaps = getprop("/controls/flight/flaps");
-							var dt = getprop("/sim/time/delta-sec");
-							if (flaps >= last_setting+0.05*dt or
-							    flaps <= last_setting-0.05*dt)
-								gui.popupTip("Flaps "~string.formatflaps(flaps));
-						}
-					} elsif (function == "f35.tiltAxis()") return func(val) {
+					} elsif (function == "f35.tiltAxis") return func(val) {
 						#min is the amount we go before the hatches start to close
 						#FIXME: add some form of interpolation/timing
 						var min = min ? min : 0.8;
 						val2 = val > min ? (val-1)*0.5/(1-min)+1 : val*0.5/min;
 						setprop("/controls/engines/engine/mixture", val2);
-					} elsif (function == "v22.tiltAxis()") {
+					} elsif (function == "v22.tiltAxis") {
 						if (min==nil) var min=0;
 						if (max==nil) var max=1;
 						return func(val) {
@@ -767,7 +686,7 @@ var control_function = {
 	toggle:func(name="", switch=0.15, index=nil) {
 		if (me.toggler != nil)
 			if (!me.isControl(name) or !me.isActive()) return;
-			else me.toggler(index); #don't pass switch on
+			else return me.toggler(index); #don't pass switch on
 		var v = me.get(name, index);
 		if (v == nil) return;
 		me.set(name, v <= switch, index);
@@ -775,10 +694,10 @@ var control_function = {
 	step:func(name, step, index=nil) {
 		if (me.stepper != nil)
 			if (!me.isControl(name) or !me.isActive()) return;
-			else me.stepper(step, index);
+			else return me.stepper(step, index);
 		var v = me.get(name, index);
 		if (v == nil) return;
-		me.set(name, v +step, index);
+		me.set(name, v+step, index);
 	},
 };
 
@@ -799,7 +718,7 @@ var control_functions = {
 	flaps:            ",control", #'control': the flapscontrol function; 'axis': second throttle
 	slats:            ",control", # // ditto //
 	DLC:              "all", #dummy
-	aileron_droop :   "all", #and more dummy
+	aileron_droop:    "all", #and more dummy
 	sweep:            ",control",
 	retractable_gear: "control,/controls/gear/gear-down", #'control': the gearcontrol function; 'axis': second throttle
 	brakes:           "button,"~Joystick.path~"brake-cmd",  #'button':  setbrakes; 'trigger'; 'axis': second throttle
@@ -869,6 +788,11 @@ foreach (var item; keys(control_functions)) {
 control_functions.flaps.min = control_functions.slats.min = control_functions.spoilers.min
  = control_functions.speedbrake.min = 0;
 
+# Add some steppers
+control_functions.flaps.stepper = globals.controls.flapsDown;
+control_functions.slats.stepper = globals.controls.stepSlats;
+control_functions.retractable_gear.stepper = globals.controls.gearDown;
+
 ##
 # Use mixture (if 0) or condition (if 1) for main control
 #
@@ -913,8 +837,7 @@ var getcontrolfuncs = func(idx=nil) {
 # Second, optional argument is the starting popupTip,
 # which it returns after adding the necessary info
 #
-if (getprop("/sim/model/path") == "Aircraft/f-14b/Models/f-14b.xml" or
-    getprop("/sim/model/path") == "Aircraft/F-14X/Models/F-14X.xml") {
+if (getprop("/sim/aero") == "f-14b-yasim") {
 	var flapscontrol = func(step, popupTip="") {
 		var flaps = control_functions.flaps.get("control");
 		if (flaps == nil) return popupTip; #must not have control of it
@@ -930,7 +853,7 @@ if (getprop("/sim/model/path") == "Aircraft/f-14b/Models/f-14b.xml" or
 		if (step < 0) var aim = 0;
 		else var aim = 1;
 		if (step and flaps != aim) {
-			globals.controls.flapsDown(step);
+			control_functions.flaps.step("control", step);
 			if (popupTip == "") popupTip = "Flaps ";
 			else   popupTip = popupTip ~ "; Flaps ";
 			var flaps = control_functions.flaps.get("control");
@@ -947,7 +870,7 @@ if (getprop("/sim/model/path") == "Aircraft/f-14b/Models/f-14b.xml" or
 		if (step < 0) var aim = 0;
 		else var aim = 1;
 		if (step and flaps != aim) {
-			globals.controls.flapsDown(step);
+			control_functions.flaps.step("control", step);
 			if (popupTip == "") popupTip = "Flaps ";
 			else   popupTip = popupTip ~ "; Flaps ";
 			var flaps = control_functions.flaps.prop.get("control");
@@ -963,7 +886,7 @@ if (getprop("/sim/model/path") == "Aircraft/f-14b/Models/f-14b.xml" or
 		if (step < 0) var aim = 0;
 		else var aim = 1;
 		if (step and flaps != aim) {
-			globals.controls.flapsDown(step);
+			control_functions.flaps.step("control", step);
 			if (popupTip == "") popupTip = "Flaps ";
 			else   popupTip = popupTip ~ "; Flaps ";
 			var flaps = control_functions.flaps.get("control");
@@ -982,7 +905,7 @@ var slatscontrol = func(step, popupTip="") {
 	if (step < 0) var aim = 0;
 	else var aim = 1;
 	if (step and slats != aim) {
-		globals.controls.stepSlats(step);
+		control_functions.slats.step("control", step);
 		if (popupTip == "") popupTip = "Slats ";
 		else   popupTip = popupTip ~ "; Slats ";
 		var slats = control_functions.slats.get("control");
@@ -1029,18 +952,37 @@ var gearcontrol = func(step, popupTip="") {
 		if (gear == nil) return popupTip;
 		if (step < 0) {
 			if (gear != 0 and !getprop("/gear/gear[0]/wow") and !getprop("/gear/gear[1]/wow") and !getprop("/gear/gear[2]/wow")) {
-				globals.controls.gearDown(-1);
+				control_functions.retractable_gear.step("control", -1);
 				if (popupTip == "") popupTip = "Gear UP";
 				else   popupTip = popupTip ~ "; Gear UP";
 			}
 		} else { #if step > 0
-			var gear = getprop("/controls/gear/gear-down");
 			if (gear != 1) {
-				globals.controls.gearDown(1);
+				control_functions.retractable_gear.step("control", 1);
 				if (popupTip == "") popupTip = "Gear DOWN";
 				else   popupTip = popupTip ~ "; Gear DOWN";
 			}
 		}
+	}
+	return popupTip;
+};
+
+##
+# Works like controls.wingSweep, 1 is down, -1 is up.
+# Second, optional argument is the starting popupTip,
+# which it returns after adding the necessary info
+#
+var sweepcontrol = func(step, popupTip="") {
+	var sweep = control_functions.sweep.get("control");
+	if (sweep == nil) return popupTip; #must not have control of it
+	if (step < 0) var aim = 0;
+	else var aim = 1;
+	if (step and sweep != aim) {
+		control_functions.sweep.step("control", step);
+		if (popupTip == "") popupTip = "Sweep ";
+		else   popupTip = popupTip ~ "; Sweep ";
+		var sweep = control_functions.sweep.get("control");
+		popupTip ~= string.formatflaps(sweep);
 	}
 	return popupTip;
 };

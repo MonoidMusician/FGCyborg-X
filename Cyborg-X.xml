@@ -95,7 +95,8 @@ button 3:                   #           Move to "clean" config     Reset sim
 			parents: [props.Node],
 			_g: props._getParent(_cmdarg(), []),
 			path: cmdarg().getParent().getPath()~"/",
-			Root: getprop("/sim/fg-root") ~ "/Input/Joysticks/Saitek/Cyborg-X",
+			#Root: getprop("/sim/fg-root") ~ "/Input/Joysticks/Saitek/Cyborg-X",
+			Root: getprop("/sim/fg-home") ~ "/Input/Joysticks/Cyborg-X",
 		};
 		var namespace = cmdarg().getNode("module").getValue();
 		if (globals[namespace] != caller(0)[0])
@@ -105,6 +106,7 @@ button 3:                   #           Move to "clean" config     Reset sim
 		var ac_path = getprop("/sim/model/path");
 		var ac_model = split("/", split(".", ac_path)[0])[-1]; #get the actual filename without folders or the extension
 		var ac_name = substr(ac_model, -6, 6) == "-model" ? substr(ac_model, 0, size(ac_model)-6) : ac_model; #this removes a common suffix
+		var ac_fdm = getprop("/sim/aero");
 
 		# A small utility for .new() functions,
 		# copies any variables out of the parent enclosure
@@ -164,8 +166,8 @@ button 3:                   #           Move to "clean" config     Reset sim
 		io.load_nasal(Joystick.Root ~ "/gui.nas", namespace);
 
 		# Custom values:
-		var reverseHatPitch = -1; #Change this if the hat direction is backwards, also can act as a speed control (e.g. -0.5)
-		var reverseHatDir   =  1; # // ditto //
+		var reverseHatPitch = -0.5; #Change this if the hat direction is backwards, also can act as a speed control (e.g. -0.5)
+		var reverseHatDir   =  0.5; # // ditto //
 		var flapdelay = scroll.new(0.2, func controls.flapsDown(0));
 		var allow_popupTips = 1; #If we want popupTips to be displayed
 
@@ -191,22 +193,22 @@ button 3:                   #           Move to "clean" config     Reset sim
 
 		# Autopilot control
 		setlistener("/autopilot/locks/speed", func(n) {
-			print(n.getValue() ? "speed-on" : "speed-off");
+			#print(n.getValue() ? "speed-on" : "speed-off");
 			if (n.getValue()) control_functions.throttle.takeControl("autopilot");
 			else control_functions.throttle.releaseControl("autopilot");
-			print(control_functions.throttle.control);
+			#print(control_functions.throttle.control);
 		}, 1, 0);
 		setlistener("/autopilot/locks/heading", func(n) {
-			print(n.getValue() ? "heading-on" : "heading-off");
+			#print(n.getValue() ? "heading-on" : "heading-off");
 			if (n.getValue()) control_functions.aileron.takeControl("autopilot");
 			else control_functions.aileron.releaseControl("autopilot");
-			print(control_functions.aileron.control);
+			#print(control_functions.aileron.control);
 		}, 1, 0);
 		setlistener("/autopilot/locks/altitude", func(n) {
-			print(n.getValue() ? "altitide-on" : "altitude-off");
+			#print(n.getValue() ? "altitide-on" : "altitude-off");
 			if (n.getValue()) control_functions.elevator.takeControl("autopilot");
 			else control_functions.elevator.releaseControl("autopilot");
-			print(control_functions.elevator.control);
+			#print(control_functions.elevator.control);
 		}, 1, 0);
 
 		# Main loop to be run once per frame
@@ -581,7 +583,10 @@ button 3:                   #           Move to "clean" config     Reset sim
 			<script><![CDATA[
 				if (mod == 0 or mod == 3)
 				{
-					var popupTip = flapscontrol(1, gearcontrol(1, tailhookcontrol(1)));
+					var popupTip = tailhookcontrol(1);
+					popupTip = gearcontrol(1, popupTip);
+					popupTip = flapscontrol(1, popupTip);
+					#var popupTip = flapscontrol(1, gearcontrol(1, tailhookcontrol(1)));
 					if (popupTip != "" and allow_popupTips) gui.popupTip(popupTip);
 				} elsif (mod == 1)
 				{
@@ -728,8 +733,10 @@ button 3:                   #           Move to "clean" config     Reset sim
 			elsif (mod == 1)
 				interpolate("/controls/flight/rudder-trim",-1,
 				   (getprop("/controls/flight/rudder-trim")+1)/controls.TRIM_RATE*1.1);
-			elsif (mod == 2)
-				flightcontrols.wingSweep(-1);
+			elsif (mod == 2) {
+				popupTip = sweepcontrol(1);
+				if (popupTip != "" and allow_popupTips) gui.popupTip(popupTip);
+			}
 		</script>
 	</binding>
 	<mod-up>
@@ -756,8 +763,10 @@ button 3:                   #           Move to "clean" config     Reset sim
 			elsif (mod == 1)
 				interpolate("/controls/flight/rudder-trim", 1,
 				  -(getprop("/controls/flight/rudder-trim")-1)/controls.TRIM_RATE*1.1);
-			elsif (mod == 2)
-				flightcontrols.wingSweep(1);
+			elsif (mod == 2) {
+				popupTip = sweepcontrol(-1);
+				if (popupTip != "" and allow_popupTips) gui.popupTip(popupTip);
+			}
 		</script>
 	</binding>
 	<mod-up>

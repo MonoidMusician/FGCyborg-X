@@ -1,4 +1,5 @@
-return;# For some documentation, see functions.nas
+return "DEPRECATED";
+# For some documentation, see functions.nas
 #
 # Roughly ranked in order of size; aircraft are almost always
 # in alphebetical order of folder name.

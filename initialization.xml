@@ -54,7 +54,11 @@ var common_modes = {
 
 foreach (var ac_def; config.getChildren("aircraft")) {
 	var found = -1;
-	if (ac_def.getNode("path") != nil) {
+	if (ac_def.getNode("fdm") != nil) {
+		var found = 0;
+		foreach (var fdmN; ac_def.getChildren("fdm"))
+			if (fdmN.getValue() == ac_fdm) {found = 1; break}
+	} if (found != 1 and ac_def.getNode("path") != nil) {
 		var found = 0;
 		foreach (var pathN; ac_def.getChildren("path"))
 			if (pathN.getValue() == ac_path) {found = 1; break}
@@ -375,7 +379,7 @@ foreach (var ac_def; config.getChildren("aircraft")) {
 <aircraft>
 	<name>707</name> <!-- Boeing 707 -->
 
-	<mode>Throttle L/R (2 Engines)</mode>
+	<mode>Throttle L/R (4 Engines)</mode>
 	<mode>Throttle / Flaps</mode>
 	<mode>Throttle / Spoilers</mode>
 	<mode>Throttle / Brakes</mode>
@@ -390,7 +394,7 @@ foreach (var ac_def; config.getChildren("aircraft")) {
 	<name>boeing747-400-jw</name> <!-- Boeing 747-400 -->
 	<name>747-400</name> <!-- Boeing 747-400 -->
 
-	<mode>Throttle L/R (2 Engines)</mode>
+	<mode>Throttle L/R (4 Engines)</mode>
 	<mode>Throttle / Flaps</mode>
 	<mode>Throttle / Spoilers</mode>
 	<mode>Throttle / Brakes</mode>
@@ -620,6 +624,26 @@ foreach (var ac_def; config.getChildren("aircraft")) {
 	</script>
 </aircraft>
 <aircraft>
+	<name>MiG-15bis</name> <!-- MiG-15bis -->
+
+	<mode>Throttle / Flaps</mode>
+	<mode>Throttle / Brakes</mode>
+	<brakes>
+		<up>brakes.speedbrake</up>
+	</brakes>
+	<control-desc>
+		main; throttle[0]; flaps;
+		retractable_gear @ /fdm/jsbsim/systems/gearcontrol/control-input;
+		speedbrake @ /fdm/jsbsim/systems/speedbrakescontrol/control-input
+	</control-desc>
+	<script>
+		control_functions.throttle.isActive = func {
+			!getprop("processes/autostart/enabled") or getprop("processes/autostart/pos") &gt;= 42;
+		};
+		control_functions.retractable_gear.stepper = nil;
+	</script>
+</aircraft>
+<aircraft>
 	<name>F-22-Raptor</name> <!-- F-22 Raptor -->
 
 	<mode>Throttle L/R (2 Engines)</mode>
@@ -683,7 +707,39 @@ foreach (var ac_def; config.getChildren("aircraft")) {
 	<no-tailhook type="bool">true</no-tailhook>
 </aircraft>
 <aircraft>
-	<name>f-14b</name> <!-- Grumman F-14b -->
+	<fdm>f-14a</fdm> <!-- Grumman F-14a (JSBSim) -->
+
+	<mode>Throttle L/R (2 Engines)</mode>
+	<!--<mode>
+		<name>Throttle / DLC</name>
+		<throttle>
+			<function>throttle</function>
+		</throttle>
+		<throttle>
+			<function>DLC</function>
+			<min>1</min>
+			<max>0</max>
+		</throttle>
+	</mode>-->
+	<mode>Throttle / Brakes</mode>
+	<brakes>
+		<up>brakes.speedbrake</up>
+		<up>
+			f14.set_sweep(0);
+		</up>
+	</brakes>
+	<script>
+		control_functions.flaps.prop = "/controls/flight/flapscommand";
+		#control_functions.DLC.prop = "/controls/flight/DLC";
+		#control_functions.DLC.isActive = func() {
+		#	return !!getprop("/controls/flight/DLC-engaged");
+		#};
+		control_functions.sweep.prop = "/fdm/jsbsim/fcs/wing-sweep-cmd";
+		control_functions.sweep.stepper = f14.move_wing_sweep;
+	</script>
+</aircraft>
+<aircraft>
+	<fdm>f-14b-yasim</fdm> <!-- Grumman F-14b (YASim) -->
 
 	<mode>Throttle L/R (2 Engines)</mode>
 	<mode>
@@ -709,6 +765,7 @@ foreach (var ac_def; config.getChildren("aircraft")) {
 	</brakes>
 	<script>
 		control_functions.flaps.prop = "/controls/flight/flapscommand";
+		control_functions.DLC.prop = "/controls/flight/DLC";
 		control_functions.DLC.isActive = func() {
 			return !!getprop("/controls/flight/DLC-engaged");
 		};
@@ -1106,9 +1163,9 @@ foreach (var ac_def; config.getChildren("aircraft")) {
 			<function>
 				var starter = arg[0] &gt; 0.85;
 				var SLS = arg[0] &gt; 0.2;
-				setprop(\"/controls/engines/engine/starter\", starter);
-				if (ask21mi.doorsystem.passenger.target == SLS)
-					ask21mi.doorsystem.passengerexport();
+				setprop("/controls/engines/engine/starter", starter);
+				if (doors.doorsystem.passenger.target == SLS)
+					doors.doorsystem.passengerexport();
 			</function>
 		</throttle>
 	</mode>
@@ -1116,7 +1173,8 @@ foreach (var ac_def; config.getChildren("aircraft")) {
 		<name>Speedbrake / Brakes</name>
 		<throttle>
 			<function>/controls/flight/spoilers</function>
-			<function>-1</function>
+			<min>1</min>
+			<max>0</max>
 		</throttle>
 		<throttle>
 			<function>brake-cmd</function>
@@ -1203,7 +1261,8 @@ foreach (var ac_def; config.getChildren("aircraft")) {
 	<no-tailhook type="bool">true</no-tailhook>
 </aircraft>
 <aircraft>
-	<name>f35</name> <!-- Lockheed Martin F-35B Lightning II -->
+	<name>f35</name>   <!-- Lockheed Martin F-35B Lightning II -->
+	<name>F-35B</name> <!-- Lockheed Martin F-35B Lightning II -->
 
 	<mode>
 		<name>Throttle / Vector</name>
@@ -1211,7 +1270,7 @@ foreach (var ac_def; config.getChildren("aircraft")) {
 			<function>throttle</function>
 		</throttle>
 		<throttle>
-			<function>f25.tiltAxis</function>
+			<function>f35.tiltAxis</function>
 			<min>0.8</min>
 		</throttle>
 	</mode>
